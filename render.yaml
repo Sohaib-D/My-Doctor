@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: ai-health-assistant
+    buildCommand: |
+      pip install --upgrade pip && \
+      pip install --only-binary=:all: -r requirements.txt
