@@ -5,11 +5,13 @@ import {
   Copy,
   ExternalLink,
   HelpCircle,
+  Image,
   Loader2,
   LogOut,
   Menu,
   Mic,
   Plus,
+  Search,
   SendHorizontal,
   Settings,
   Share2,
@@ -48,6 +50,11 @@ import {
 const TOKEN_KEY = 'pd_access_token';
 const TOKEN_EXPIRY_KEY = 'pd_access_token_exp_ms';
 const USER_KEY = 'pd_user';
+const SIDEBAR_WIDTH_KEY = 'pd_sidebar_width';
+const SIDEBAR_COLLAPSED_WIDTH = 64;
+const SIDEBAR_OPEN_WIDTH = 240;
+const SIDEBAR_RESIZE_MAX = Math.round(SIDEBAR_OPEN_WIDTH * 1.18);
+const SIDEBAR_RESIZE_MIN = Math.round(SIDEBAR_RESIZE_MAX * 0.4);
 const SILENCE_TIMEOUT_MS = 2500;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
@@ -55,6 +62,14 @@ const PASSWORD_RULE_MESSAGE =
   'Password must be at least 8 characters and include uppercase, lowercase, and a number.';
 const AUTH_GENERIC_ERROR = 'Unable to authenticate right now. Please try again.';
 const PROFILE_NOT_FOUND_MESSAGE = 'Profile not found.';
+
+function clampSidebarWidth(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return SIDEBAR_OPEN_WIDTH;
+  }
+  return Math.max(SIDEBAR_RESIZE_MIN, Math.min(SIDEBAR_RESIZE_MAX, Math.round(numeric)));
+}
 
 function createEmptyMedicalProfile() {
   return {
@@ -122,6 +137,80 @@ function toAuthMessage(error) {
   return rawMessage;
 }
 
+function stripMarkdownForSpeech(text) {
+  return String(text || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+[.)]\s+/gm, '')
+    .replace(/^#+\s+/gm, '')
+    .replace(/[>*_~]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildSpokenExplanation(message) {
+  const rawText = normalizeMessageText(message);
+  const cleaned = stripMarkdownForSpeech(rawText);
+  if (!cleaned) {
+    return '';
+  }
+
+  if (message?.role !== 'assistant') {
+    return cleaned;
+  }
+
+  if (message?.structured && typeof message.structured === 'object') {
+    const parts = [];
+    if (message.structured.symptoms) {
+      parts.push(`Symptoms suggest ${stripMarkdownForSpeech(message.structured.symptoms)}.`);
+    }
+    if (message.structured.possible_causes) {
+      parts.push(`Possible causes include ${stripMarkdownForSpeech(message.structured.possible_causes)}.`);
+    }
+    if (message.structured.advice) {
+      parts.push(`Recommended advice is ${stripMarkdownForSpeech(message.structured.advice)}.`);
+    }
+    if (message.structured.urgency_level) {
+      parts.push(`Urgency level is ${stripMarkdownForSpeech(message.structured.urgency_level)}.`);
+    }
+    if (message.structured.when_to_see_doctor) {
+      parts.push(`See a doctor when ${stripMarkdownForSpeech(message.structured.when_to_see_doctor)}.`);
+    }
+    const structuredExplanation = parts.join(' ');
+    if (structuredExplanation) {
+      return `Here is a simple explanation. ${structuredExplanation}`;
+    }
+  }
+
+  const listItems = String(rawText || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => /^[-*+]\s+/.test(line) || /^\d+[.)]\s+/.test(line))
+    .map((line) => stripMarkdownForSpeech(line.replace(/^[-*+]\s+|^\d+[.)]\s+/, '')))
+    .filter(Boolean)
+    .slice(0, 4);
+
+  if (listItems.length >= 2) {
+    const sequence = ['First', 'Then', 'Also', 'Finally'];
+    const explainedList = listItems
+      .map((item, index) => `${sequence[index] || 'Also'}, ${item}.`)
+      .join(' ');
+    return `Here is a simple explanation. ${explainedList}`;
+  }
+
+  const sentenceMatches = cleaned.match(/[^.!?]+[.!?]?/g) || [];
+  const summary = sentenceMatches
+    .map((sentence) => sentence.trim())
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(' ');
+
+  return `Here is a simple explanation. ${summary || cleaned}`;
+}
+
 export default function App() {
   const shareRouteId = useMemo(() => {
     if (typeof window === 'undefined') {
@@ -145,7 +234,18 @@ export default function App() {
   const [pendingVerificationLogin, setPendingVerificationLogin] = useState({ email: '', password: '' });
 
   const [chatLanguage, setChatLanguage] = useState('en');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isMobileLayout, setIsMobileLayout] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)').matches : false
+  );
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(() =>
+    typeof window !== 'undefined'
+      ? clampSidebarWidth(window.localStorage.getItem(SIDEBAR_WIDTH_KEY) || SIDEBAR_OPEN_WIDTH)
+      : SIDEBAR_OPEN_WIDTH
+  );
+  const [sidebarResizing, setSidebarResizing] = useState(false);
+  const [searchChatsOpen, setSearchChatsOpen] = useState(false);
+  const [chatSearch, setChatSearch] = useState('');
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
 
@@ -180,6 +280,8 @@ export default function App() {
   const autoSpokenMessageRef = useRef('');
   const userMenuRef = useRef(null);
   const shareMenuRef = useRef(null);
+  const sidebarResizeStartXRef = useRef(0);
+  const sidebarResizeStartWidthRef = useRef(SIDEBAR_OPEN_WIDTH);
 
   const authenticated = Boolean(token);
   const inGuestMode = guestMode && !authenticated;
@@ -187,6 +289,13 @@ export default function App() {
     () => [...messages].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()),
     [messages]
   );
+  const filteredSessions = useMemo(() => {
+    const query = chatSearch.trim().toLowerCase();
+    if (!query) {
+      return sessions;
+    }
+    return sessions.filter((session) => (session.title || '').toLowerCase().includes(query));
+  }, [chatSearch, sessions]);
 
   const clearSilenceTimer = useCallback(() => {
     if (silenceTimerRef.current) {
@@ -235,6 +344,11 @@ export default function App() {
     setDraft('');
     setChatError('');
     setShareError('');
+    setIsSidebarOpen(true);
+    setSidebarWidth(SIDEBAR_OPEN_WIDTH);
+    setSidebarResizing(false);
+    setSearchChatsOpen(false);
+    setChatSearch('');
     setSettingsOpen(false);
     setProfileBusy(false);
     setProfileSaving(false);
@@ -246,6 +360,59 @@ export default function App() {
     localStorage.removeItem(TOKEN_EXPIRY_KEY);
     localStorage.removeItem(USER_KEY);
   }, []);
+
+  const openSidebar = useCallback(() => {
+    setIsSidebarOpen(true);
+    setSidebarWidth((prev) => (prev <= SIDEBAR_RESIZE_MIN + 4 ? SIDEBAR_OPEN_WIDTH : clampSidebarWidth(prev)));
+  }, []);
+
+  const closeSidebar = useCallback(() => {
+    setIsSidebarOpen(false);
+    setSidebarResizing(false);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    setUserMenuOpen(false);
+    if (isMobileLayout) {
+      setSearchChatsOpen(false);
+      setChatSearch('');
+    }
+  }, [isMobileLayout]);
+
+  const toggleSidebar = useCallback(() => {
+    setIsSidebarOpen((prev) => {
+      const next = !prev;
+      if (!next) {
+        setSidebarResizing(false);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        setUserMenuOpen(false);
+        if (isMobileLayout) {
+          setSearchChatsOpen(false);
+          setChatSearch('');
+        }
+      } else {
+        setSidebarWidth((current) =>
+          current <= SIDEBAR_RESIZE_MIN + 4 ? SIDEBAR_OPEN_WIDTH : clampSidebarWidth(current)
+        );
+      }
+      return next;
+    });
+  }, [isMobileLayout]);
+
+  const handleSidebarResizeStart = useCallback(
+    (event) => {
+      if (isMobileLayout || !isSidebarOpen) {
+        return;
+      }
+      setSidebarResizing(true);
+      sidebarResizeStartXRef.current = event.clientX;
+      sidebarResizeStartWidthRef.current = sidebarWidth;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      event.preventDefault();
+    },
+    [isMobileLayout, isSidebarOpen, sidebarWidth]
+  );
 
   const logout = useCallback(async () => {
     stopSpeaking();
@@ -430,13 +597,61 @@ export default function App() {
   }, [shareRouteId]);
 
   useEffect(() => {
+    if (!sidebarResizing) {
+      return undefined;
+    }
+
+    const onPointerMove = (event) => {
+      const delta = event.clientX - sidebarResizeStartXRef.current;
+      setSidebarWidth(clampSidebarWidth(sidebarResizeStartWidthRef.current + delta));
+    };
+
+    const onPointerUp = () => {
+      setSidebarResizing(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    window.addEventListener('mousemove', onPointerMove);
+    window.addEventListener('mouseup', onPointerUp);
+    return () => {
+      window.removeEventListener('mousemove', onPointerMove);
+      window.removeEventListener('mouseup', onPointerUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [sidebarResizing]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(clampSidebarWidth(sidebarWidth)));
+  }, [sidebarWidth]);
+
+  useEffect(() => {
     if (shareRouteId) return;
     const media = window.matchMedia('(max-width: 900px)');
-    const sync = () => setSidebarOpen(!media.matches);
+    const sync = () => {
+      const isMobile = media.matches;
+      setIsMobileLayout(isMobile);
+      if (isMobile) {
+        setSidebarResizing(false);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
     sync();
     media.addEventListener('change', sync);
     return () => media.removeEventListener('change', sync);
   }, [shareRouteId]);
+
+  useEffect(() => {
+    if (authenticated) {
+      setIsSidebarOpen(true);
+      setSidebarWidth((prev) => (prev <= SIDEBAR_RESIZE_MIN + 4 ? SIDEBAR_OPEN_WIDTH : clampSidebarWidth(prev)));
+    }
+  }, [authenticated]);
 
   useEffect(() => {
     if (shareRouteId) return;
@@ -499,14 +714,14 @@ export default function App() {
         setChatError('Text-to-speech is not supported in this browser.');
         return;
       }
-      const text = normalizeMessageText(message);
-      if (!text.trim()) return;
+      const speechText = buildSpokenExplanation(message);
+      if (!speechText.trim()) return;
 
       stopSpeaking();
-      const utterance = new SpeechSynthesisUtterance(text);
-      const lang = containsUrdu(text) ? 'ur-PK' : 'en-US';
+      const utterance = new SpeechSynthesisUtterance(speechText);
+      const lang = containsUrdu(speechText) ? 'ur-PK' : 'en-US';
       utterance.lang = lang;
-      utterance.rate = 0.92;
+      utterance.rate = lang.startsWith('ur') ? 0.88 : 0.93;
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
 
@@ -841,6 +1056,8 @@ export default function App() {
     setChatError('');
     setShareError('');
     setSettingsOpen(false);
+    setSearchChatsOpen(false);
+    setChatSearch('');
     setProfileBusy(false);
     setProfileSaving(false);
     setProfileError('');
@@ -860,17 +1077,30 @@ export default function App() {
     async (sessionId) => {
       setActiveSessionId(sessionId);
       await loadHistory(sessionId);
-      if (window.matchMedia('(max-width: 900px)').matches) {
-        setSidebarOpen(false);
+      if (isMobileLayout) {
+        closeSidebar();
       }
     },
-    [loadHistory]
+    [closeSidebar, isMobileLayout, loadHistory]
   );
 
   const handleNewChat = useCallback(() => {
     setActiveSessionId('');
     setMessages([]);
     setChatError('');
+    if (isMobileLayout) {
+      closeSidebar();
+    }
+  }, [closeSidebar, isMobileLayout]);
+
+  const handleToggleSearchChats = useCallback(() => {
+    setSearchChatsOpen((prev) => {
+      const next = !prev;
+      if (!next) {
+        setChatSearch('');
+      }
+      return next;
+    });
   }, []);
 
   const handleSendMessage = useCallback(async () => {
@@ -1013,38 +1243,151 @@ export default function App() {
     );
   }
 
+  const desktopSidebarWidth = isSidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED_WIDTH;
+  const mobileSidebarWidth = `min(${SIDEBAR_OPEN_WIDTH}px, 85vw)`;
+
   return (
     <div className="relative flex h-screen flex-col overflow-hidden bg-slatebg text-slate-100">
       <MedicalBackground opacity={0.15} />
       <div className="relative z-10 flex min-h-0 flex-1 overflow-hidden">
-        <aside className={`${sidebarOpen ? 'w-72' : 'w-0'} flex shrink-0 flex-col border-r border-white/10 bg-slate-950/85 transition-all duration-200 backdrop-blur`}>
-          <div className={`${sidebarOpen ? 'flex' : 'hidden'} min-h-0 flex-1 flex-col`}>
-            <div className="border-b border-white/10 p-3">
-              <button type="button" onClick={handleNewChat} className="flex w-full items-center justify-center gap-2 rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm font-medium hover:bg-white/10">
-                <Plus size={16} />
-                New chat
-              </button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-2">
-              {sessions.map((session) => (
-                <button key={session.id} type="button" onClick={() => handleSelectSession(session.id)} className={`mb-1 w-full rounded-lg px-3 py-2 text-left transition ${activeSessionId === session.id ? 'bg-emerald-500/20 text-emerald-100' : 'hover:bg-white/5'}`}>
-                  <p className="truncate text-sm font-medium">{session.title}</p>
-                  <p className="mt-1 text-xs text-slate-400">{formatSessionDate(session.last_message_at || session.created_at)}</p>
-                </button>
-              ))}
-              {!sessions.length && <p className="px-2 pt-2 text-sm text-slate-400">No chats yet.</p>}
-            </div>
+        {isMobileLayout && isSidebarOpen && (
+          <button
+            type="button"
+            onClick={closeSidebar}
+            className="absolute inset-0 z-30 bg-slate-950/60 backdrop-blur-sm"
+            aria-label="Close sidebar overlay"
+          />
+        )}
 
-            <div ref={userMenuRef} className="relative border-t border-white/10 p-2">
-              <button type="button" onClick={() => setUserMenuOpen((prev) => !prev)} className="flex w-full items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/10">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-cyan-500/20 text-sm font-semibold text-cyan-100">{getInitials(user)}</div>
-                <div className="min-w-0 flex-1 text-left">
-                  <p className="truncate text-sm font-medium text-slate-100">{inGuestMode ? 'Guest User' : user?.full_name || 'User'}</p>
-                  <p className="truncate text-xs text-slate-400">{inGuestMode ? 'Not signed in' : user?.email}</p>
+        <aside
+          className={`group fixed left-0 top-0 z-40 h-full border-r border-white/10 bg-slate-950/90 backdrop-blur transition-[width,transform] duration-300 ${
+            isMobileLayout ? (isSidebarOpen ? 'translate-x-0' : '-translate-x-full') : 'translate-x-0'
+          }`}
+          style={{ width: isMobileLayout ? mobileSidebarWidth : `${desktopSidebarWidth}px` }}
+        >
+          <div className="flex h-full flex-col">
+            <div className={isSidebarOpen ? 'p-3' : 'flex justify-center px-2 py-3'}>
+              {!isSidebarOpen && (
+                <div className="w-full text-center">
+                  <button
+                    type="button"
+                    onClick={toggleSidebar}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-emerald-300/30 bg-emerald-300/15 text-emerald-200 hover:bg-emerald-300/20 hover:text-emerald-100"
+                    aria-label="Open sidebar"
+                  >
+                    <Stethoscope size={18} />
+                  </button>
                 </div>
-                {userMenuOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+              )}
+
+              {isSidebarOpen && (
+                <div>
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-white/5 text-cyan-200">
+                        <Stethoscope size={16} />
+                      </div>
+                      <p className="truncate text-sm font-semibold text-slate-100">Personal Doctor AI</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={toggleSidebar}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 text-slate-300 hover:bg-white/10 hover:text-white"
+                      aria-label="Collapse sidebar"
+                    >
+                      <Menu size={16} />
+                    </button>
+                  </div>
+                  <div className="space-y-1">
+                  <button
+                    type="button"
+                    onClick={handleNewChat}
+                    className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-base text-slate-100 hover:bg-white/10"
+                  >
+                    <Plus size={18} />
+                    New chat
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleToggleSearchChats}
+                    className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-base text-slate-100 hover:bg-white/10"
+                  >
+                    <Search size={18} />
+                    Search chats
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-base text-slate-100 hover:bg-white/10"
+                  >
+                    <Image size={18} />
+                    Images
+                  </button>
+                  {searchChatsOpen && (
+                    <input
+                      type="text"
+                      value={chatSearch}
+                      onChange={(event) => setChatSearch(event.target.value)}
+                      className="mt-2 w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-cyan-400/30 focus:ring-2"
+                      placeholder="Search conversations..."
+                    />
+                  )}
+                </div>
+                </div>
+              )}
+            </div>
+            {isSidebarOpen && (
+              <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+                {filteredSessions.map((session) => (
+                  <button
+                    key={session.id}
+                    type="button"
+                    onClick={() => handleSelectSession(session.id)}
+                    className={`mb-1 w-full rounded-lg px-3 py-2 text-left transition ${
+                      activeSessionId === session.id ? 'bg-emerald-500/20 text-emerald-100' : 'hover:bg-white/5'
+                    }`}
+                  >
+                    <p className="truncate text-sm font-medium">{session.title}</p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {formatSessionDate(session.last_message_at || session.created_at)}
+                    </p>
+                  </button>
+                ))}
+                {!filteredSessions.length && (
+                  <p className="px-2 pt-2 text-sm text-slate-400">{chatSearch.trim() ? 'No chats found.' : 'No chats yet.'}</p>
+                )}
+              </div>
+            )}
+
+            <div ref={userMenuRef} className={`relative mt-auto border-t border-white/10 ${isSidebarOpen ? 'p-2' : 'p-3'}`}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isSidebarOpen) {
+                    openSidebar();
+                    return;
+                  }
+                  setUserMenuOpen((prev) => !prev);
+                }}
+                className={
+                  isSidebarOpen
+                    ? 'flex w-full items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/10'
+                    : 'mx-auto flex h-10 w-10 items-center justify-center rounded-full hover:bg-white/10'
+                }
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-cyan-500/20 text-sm font-semibold text-cyan-100">
+                  {getInitials(user)}
+                </div>
+                {isSidebarOpen && (
+                  <>
+                    <div className="min-w-0 flex-1 text-left">
+                      <p className="truncate text-sm font-medium text-slate-100">{inGuestMode ? 'Guest User' : user?.full_name || 'User'}</p>
+                      <p className="truncate text-xs text-slate-400">{inGuestMode ? 'Not signed in' : user?.email}</p>
+                    </div>
+                    {userMenuOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                  </>
+                )}
               </button>
-              {userMenuOpen && (
+              {isSidebarOpen && userMenuOpen && (
                 <div className="absolute bottom-14 left-2 right-2 rounded-xl border border-white/15 bg-slate-900/95 p-1 shadow-chat">
                   <button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-white/10"><Sparkles size={15} />Upgrade plan</button>
                   <button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-white/10"><SlidersHorizontal size={15} />Personalization</button>
@@ -1055,15 +1398,33 @@ export default function App() {
               )}
             </div>
           </div>
+          {!isMobileLayout && isSidebarOpen && (
+            <button
+              type="button"
+              onMouseDown={handleSidebarResizeStart}
+              className="absolute right-0 top-0 z-50 h-full w-2 cursor-col-resize"
+              aria-label="Resize sidebar"
+            >
+              <span
+                className={`absolute right-0 top-1/2 h-20 -translate-y-1/2 border-r border-white/20 ${
+                  sidebarResizing ? 'opacity-100' : 'opacity-0 transition-opacity group-hover:opacity-100'
+                }`}
+              />
+            </button>
+          )}
         </aside>
 
-        <main className="flex min-w-0 flex-1 flex-col">
-          <header className="flex items-center justify-between border-b border-white/10 bg-slate-900/80 px-4 py-3 backdrop-blur">
+        <main
+          className="flex min-h-0 min-w-0 flex-1 flex-col transition-[margin-left] duration-300"
+          style={{ marginLeft: isMobileLayout ? '0px' : `${desktopSidebarWidth}px` }}
+        >
+          <header className="shrink-0 flex items-center justify-between border-b border-white/10 bg-slate-900/80 px-4 py-3 backdrop-blur">
             <div className="flex items-center gap-3">
-              <button type="button" onClick={() => setSidebarOpen((prev) => !prev)} className="rounded-lg p-2 text-slate-300 hover:bg-white/10 hover:text-white" aria-label="Toggle sidebar">
-                <Menu size={18} />
-              </button>
-              <div className="rounded-lg bg-emerald-500/20 p-2 text-emerald-300"><Stethoscope size={18} /></div>
+              {isMobileLayout && (
+                <button type="button" onClick={toggleSidebar} className="rounded-lg p-2 text-slate-300 hover:bg-white/10 hover:text-white" aria-label="Toggle sidebar">
+                  <Menu size={18} />
+                </button>
+              )}
               <div>
                 <h1 className="text-sm font-semibold text-white sm:text-base">Personal Doctor AI</h1>
                 <p className="text-xs text-slate-400">{inGuestMode ? 'Guest mode' : user?.email}</p>
@@ -1094,7 +1455,7 @@ export default function App() {
           </header>
 
           {inGuestMode && (
-            <div className="border-b border-amber-400/30 bg-amber-500/10 px-4 py-2 text-center text-sm text-amber-100">
+            <div className="shrink-0 border-b border-amber-400/30 bg-amber-500/10 px-4 py-2 text-center text-sm text-amber-100">
               You are using Guest Mode. Chats will not be saved.
             </div>
           )}
@@ -1121,11 +1482,18 @@ export default function App() {
                   {message.failed && <p className="mt-2 rounded-md bg-red-500/20 px-2 py-1 text-xs text-red-200">Failed to send. Please retry.</p>}
                 </div>
               ))}
+              {sending && (
+                <div className="mr-auto border border-white/10 bg-slate-800/80 text-slate-100 max-w-3xl rounded-2xl px-4 py-3">
+                  <p className="text-sm leading-6 text-slate-200">
+                    Assistant <span className="animate-pulse">...</span>
+                  </p>
+                </div>
+              )}
               <div ref={scrollBottomRef} />
             </div>
           </section>
 
-          <div className="border-t border-white/10 bg-slate-900/85 px-4 py-4 backdrop-blur">
+          <div className="shrink-0 border-t border-white/10 bg-slate-900/85 px-4 py-4 backdrop-blur">
             <div className="mx-auto w-full max-w-4xl">
               {(chatError || shareError) && <div className="mb-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">{chatError || shareError}</div>}
               <div className="rounded-2xl border border-white/15 bg-slate-900 p-3">
@@ -1151,6 +1519,9 @@ export default function App() {
               </div>
             </div>
           </div>
+          <footer className="shrink-0 border-t border-white/10 bg-slate-900/85 px-4 py-2 text-center text-xs text-slate-400 backdrop-blur">
+            Not a substitute for professional medical advice. Sohaib Shahid - All Rights Reserved.
+          </footer>
         </main>
       </div>
       {settingsOpen && (
@@ -1292,9 +1663,7 @@ export default function App() {
           </div>
         </div>
       )}
-      <footer className="relative z-10 border-t border-white/10 bg-slate-900/85 px-4 py-2 text-center text-xs text-slate-400 backdrop-blur">
-        Not a substitute for professional medical advice. Sohaib Shahid — All Rights Reserved.
-      </footer>
     </div>
   );
 }
+
