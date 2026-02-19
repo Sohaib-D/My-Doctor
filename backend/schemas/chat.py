@@ -94,6 +94,7 @@ class ProfileContext(BaseModel):
     gender: str | None = None
     medical_history: str | None = None
     allergies: str | None = None
+    medications: str | None = None
     current_medications: str | None = None
     chronic_conditions: str | None = None
 

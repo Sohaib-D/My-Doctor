@@ -36,6 +36,7 @@ export default function AuthCard({
   onEmailSignup,
   onGoogleLogin,
   onResendVerification,
+  onContinueAsGuest,
 }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -78,7 +79,7 @@ export default function AuthCard({
 
   return (
     <div className="relative flex min-h-screen items-center justify-center px-4 py-10">
-      <MedicalBackground />
+      <MedicalBackground opacity={0.25} />
       <div className="relative z-10 w-full max-w-md rounded-2xl border border-white/10 bg-slate-900/90 p-7 shadow-chat backdrop-blur-xl">
         <div className="mb-6 flex items-center gap-3">
           <div className="rounded-lg bg-emerald-500/20 p-2 text-emerald-300">
@@ -203,6 +204,15 @@ export default function AuthCard({
         >
           {isRegister ? 'Already registered? Sign in' : 'Need an account? Create one'}
         </button>
+        {!isRegister && (
+          <button
+            type="button"
+            onClick={onContinueAsGuest}
+            className="mt-3 text-sm text-slate-300 underline decoration-slate-500 underline-offset-4 hover:text-white"
+          >
+            Continue as Guest
+          </button>
+        )}
       </div>
     </div>
   );

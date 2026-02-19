@@ -38,7 +38,7 @@ body,
 }
 
 .medical-float {
-  animation: medical-float 12s ease-in-out infinite;
+  animation: medical-float 13.6s ease-in-out infinite;
 }
 
 .medical-background {
@@ -265,19 +265,124 @@ body,
   background: rgba(226, 232, 240, 0.4);
 }
 
+.medical-syringe {
+  position: relative;
+  width: 104px;
+  height: 24px;
+  transform: rotate(-18deg);
+}
+
+.medical-syringe .needle {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 24px;
+  height: 2px;
+  transform: translateY(-50%);
+  background: rgba(191, 219, 254, 0.55);
+}
+
+.medical-syringe .barrel {
+  position: absolute;
+  top: 50%;
+  left: 14px;
+  width: 62px;
+  height: 14px;
+  transform: translateY(-50%);
+  border-radius: 6px;
+  border: 1px solid rgba(191, 219, 254, 0.45);
+  background: linear-gradient(180deg, rgba(125, 211, 252, 0.28), rgba(59, 130, 246, 0.14));
+}
+
+.medical-syringe .plunger {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 20px;
+  height: 8px;
+  transform: translateY(-50%);
+  border-radius: 4px;
+  background: rgba(148, 163, 184, 0.5);
+}
+
+.medical-vial {
+  position: relative;
+  width: 44px;
+  height: 68px;
+}
+
+.medical-vial .cap {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 24px;
+  height: 12px;
+  transform: translateX(-50%);
+  border-radius: 5px 5px 2px 2px;
+  background: rgba(148, 163, 184, 0.45);
+}
+
+.medical-vial .glass {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  width: 34px;
+  height: 50px;
+  transform: translateX(-50%);
+  border-radius: 8px;
+  border: 1px solid rgba(191, 219, 254, 0.45);
+  background: rgba(15, 23, 42, 0.3);
+}
+
+.medical-vial .liquid {
+  position: absolute;
+  bottom: 11px;
+  left: 50%;
+  width: 24px;
+  height: 20px;
+  transform: translateX(-50%);
+  border-radius: 5px 5px 7px 7px;
+  background: linear-gradient(180deg, rgba(45, 212, 191, 0.55), rgba(14, 116, 144, 0.28));
+  animation: vial-bob 2.1s ease-in-out infinite;
+}
+
+.medical-ecg {
+  position: relative;
+  width: 106px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  background: rgba(15, 23, 42, 0.28);
+  overflow: hidden;
+}
+
+.medical-ecg .line {
+  position: absolute;
+  top: 50%;
+  left: -120%;
+  width: 120%;
+  height: 2px;
+  transform: translateY(-50%);
+  background:
+    linear-gradient(90deg, transparent 0%, transparent 8%, rgba(45, 212, 191, 0.68) 18%, rgba(45, 212, 191, 0.68) 28%, transparent 36%),
+    linear-gradient(90deg, transparent 0%, transparent 38%, rgba(45, 212, 191, 0.68) 47%, rgba(45, 212, 191, 0.68) 54%, transparent 63%),
+    linear-gradient(90deg, transparent 0%, transparent 68%, rgba(45, 212, 191, 0.68) 76%, rgba(45, 212, 191, 0.68) 84%, transparent 94%);
+  animation: ecg-run 2.8s linear infinite;
+}
+
 @keyframes medical-float {
   0%,
   100% {
     transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg) rotate(0deg);
   }
   25% {
-    transform: translate3d(8px, -7px, 8px) rotateX(2deg) rotateY(-5deg) rotate(1.4deg);
+    transform: translate3d(10px, -8px, 9px) rotateX(2.3deg) rotateY(-6deg) rotate(1.6deg);
   }
   50% {
-    transform: translate3d(-6px, -16px, 12px) rotateX(-2.5deg) rotateY(6deg) rotate(-1.2deg);
+    transform: translate3d(-8px, -19px, 14px) rotateX(-3deg) rotateY(7deg) rotate(-1.6deg);
   }
   75% {
-    transform: translate3d(-9px, -8px, 7px) rotateX(1.8deg) rotateY(-3.5deg) rotate(1deg);
+    transform: translate3d(-11px, -9px, 9px) rotateX(2.1deg) rotateY(-4.2deg) rotate(1.3deg);
   }
 }
 
@@ -303,6 +408,25 @@ body,
   }
 }
 
+@keyframes vial-bob {
+  0%,
+  100% {
+    height: 20px;
+  }
+  50% {
+    height: 24px;
+  }
+}
+
+@keyframes ecg-run {
+  0% {
+    left: -120%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
 @media (max-width: 900px) {
   .medical-grid-overlay {
     opacity: 0.14;
@@ -323,6 +447,6 @@ body,
   }
 
   .medical-float {
-    animation-duration: 14s;
+    animation-duration: 16s;
   }
 }

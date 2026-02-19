@@ -54,6 +54,57 @@ const PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
 const PASSWORD_RULE_MESSAGE =
   'Password must be at least 8 characters and include uppercase, lowercase, and a number.';
 const AUTH_GENERIC_ERROR = 'Unable to authenticate right now. Please try again.';
+const PROFILE_NOT_FOUND_MESSAGE = 'Profile not found.';
+
+function createEmptyMedicalProfile() {
+  return {
+    age: '',
+    gender: '',
+    medical_history: '',
+    allergies: '',
+    medications: '',
+    chronic_conditions: '',
+  };
+}
+
+function isProfileNotFoundError(error) {
+  return (error?.message || '').toLowerCase().includes(PROFILE_NOT_FOUND_MESSAGE.toLowerCase());
+}
+
+function profileToForm(profile) {
+  return {
+    age: profile?.age === null || profile?.age === undefined ? '' : String(profile.age),
+    gender: profile?.gender || '',
+    medical_history: profile?.medical_history || '',
+    allergies: profile?.allergies || '',
+    medications: profile?.medications || '',
+    chronic_conditions: profile?.chronic_conditions || '',
+  };
+}
+
+function formToProfilePayload(form) {
+  const parseAge = () => {
+    const raw = String(form.age || '').trim();
+    if (!raw) return null;
+    const numeric = Number(raw);
+    if (!Number.isFinite(numeric)) return null;
+    const integerAge = Math.trunc(numeric);
+    if (integerAge < 0 || integerAge > 130) return null;
+    return integerAge;
+  };
+  const clean = (value) => {
+    const text = String(value || '').trim();
+    return text || null;
+  };
+  return {
+    age: parseAge(),
+    gender: clean(form.gender),
+    medical_history: clean(form.medical_history),
+    allergies: clean(form.allergies),
+    medications: clean(form.medications),
+    chronic_conditions: clean(form.chronic_conditions),
+  };
+}
 
 function toAuthMessage(error) {
   const rawMessage = (error?.message || '').trim();
@@ -88,6 +139,7 @@ export default function App() {
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState('');
   const [authInfo, setAuthInfo] = useState('');
+  const [guestMode, setGuestMode] = useState(false);
   const [resendBusy, setResendBusy] = useState(false);
   const [showResendVerification, setShowResendVerification] = useState(false);
   const [pendingVerificationLogin, setPendingVerificationLogin] = useState({ email: '', password: '' });
@@ -112,6 +164,13 @@ export default function App() {
   const [autoVoice, setAutoVoice] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareError, setShareError] = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState('');
+  const [profileInfo, setProfileInfo] = useState('');
+  const [hasProfile, setHasProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState(createEmptyMedicalProfile);
 
   const textAreaRef = useRef(null);
   const scrollBottomRef = useRef(null);
@@ -123,6 +182,7 @@ export default function App() {
   const shareMenuRef = useRef(null);
 
   const authenticated = Boolean(token);
+  const inGuestMode = guestMode && !authenticated;
   const sortedMessages = useMemo(
     () => [...messages].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()),
     [messages]
@@ -175,6 +235,13 @@ export default function App() {
     setDraft('');
     setChatError('');
     setShareError('');
+    setSettingsOpen(false);
+    setProfileBusy(false);
+    setProfileSaving(false);
+    setProfileError('');
+    setProfileInfo('');
+    setHasProfile(false);
+    setProfileForm(createEmptyMedicalProfile());
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(TOKEN_EXPIRY_KEY);
     localStorage.removeItem(USER_KEY);
@@ -189,6 +256,7 @@ export default function App() {
       // ignore
     }
     clearLocalSession();
+    setGuestMode(false);
   }, [clearLocalSession, stopDictation, stopSpeaking]);
 
   const applyBackendSession = useCallback((payload) => {
@@ -554,6 +622,7 @@ export default function App() {
   }, [startDictation, stopDictation]);
 
   const handleEmailSignup = useCallback(async ({ email, password, confirmPassword, fullName }) => {
+    setGuestMode(false);
     setAuthBusy(true);
     setAuthError('');
     setAuthInfo('');
@@ -583,6 +652,7 @@ export default function App() {
 
   const handleEmailLogin = useCallback(
     async ({ email, password }) => {
+      setGuestMode(false);
       setAuthBusy(true);
       setAuthError('');
       setAuthInfo('');
@@ -612,6 +682,7 @@ export default function App() {
   );
 
   const handleGoogleLogin = useCallback(async () => {
+    setGuestMode(false);
     setAuthBusy(true);
     setAuthError('');
     setAuthInfo('');
@@ -666,6 +737,125 @@ export default function App() {
     setPendingVerificationLogin({ email: '', password: '' });
   }, []);
 
+  const loadMedicalProfile = useCallback(
+    async (authToken = token) => {
+      if (!authToken) {
+        setHasProfile(false);
+        setProfileForm(createEmptyMedicalProfile());
+        return null;
+      }
+      const payload = await api.getProfile(authToken);
+      setHasProfile(true);
+      setProfileForm(profileToForm(payload));
+      return payload;
+    },
+    [token]
+  );
+
+  const handleOpenSettings = useCallback(async () => {
+    if (!token) {
+      return;
+    }
+    setSettingsOpen(true);
+    setProfileBusy(true);
+    setProfileSaving(false);
+    setProfileError('');
+    setProfileInfo('');
+    try {
+      await loadMedicalProfile(token);
+    } catch (error) {
+      if (isProfileNotFoundError(error)) {
+        setHasProfile(false);
+        setProfileForm(createEmptyMedicalProfile());
+      } else {
+        setProfileError(error?.message || 'Unable to load profile.');
+      }
+    } finally {
+      setProfileBusy(false);
+    }
+  }, [loadMedicalProfile, token]);
+
+  const handleCloseSettings = useCallback(() => {
+    setSettingsOpen(false);
+    setProfileSaving(false);
+    setProfileError('');
+    setProfileInfo('');
+  }, []);
+
+  const handleProfileFieldChange = useCallback((key, value) => {
+    setProfileForm((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
+  const handleProfileSubmit = useCallback(
+    async (event) => {
+      event.preventDefault();
+      if (!token) {
+        return;
+      }
+      setProfileSaving(true);
+      setProfileError('');
+      setProfileInfo('');
+      const payload = formToProfilePayload(profileForm);
+      try {
+        if (hasProfile) {
+          await api.updateProfile(payload, token);
+        } else {
+          await api.createProfile(payload, token);
+          setHasProfile(true);
+        }
+        setProfileInfo('Medical profile saved.');
+      } catch (error) {
+        if (!hasProfile && (error?.message || '').toLowerCase().includes('already exists')) {
+          await api.updateProfile(payload, token);
+          setHasProfile(true);
+          setProfileInfo('Medical profile saved.');
+        } else {
+          setProfileError(error?.message || 'Unable to save profile.');
+        }
+      } finally {
+        setProfileSaving(false);
+      }
+    },
+    [hasProfile, profileForm, token]
+  );
+
+  const handleContinueAsGuest = useCallback(() => {
+    setAuthBusy(false);
+    setAuthError('');
+    setAuthInfo('');
+    setResendBusy(false);
+    setShowResendVerification(false);
+    setPendingVerificationLogin({ email: '', password: '' });
+    setSettingsOpen(false);
+    setGuestMode(true);
+  }, []);
+
+  const handleExitGuestMode = useCallback(() => {
+    stopSpeaking();
+    stopDictation(true);
+    setGuestMode(false);
+    setSessions([]);
+    setActiveSessionId('');
+    setMessages([]);
+    setDraft('');
+    setChatError('');
+    setShareError('');
+    setSettingsOpen(false);
+    setProfileBusy(false);
+    setProfileSaving(false);
+    setProfileError('');
+    setProfileInfo('');
+    setHasProfile(false);
+    setProfileForm(createEmptyMedicalProfile());
+    setAuthMode('login');
+    setAuthBusy(false);
+    setAuthError('');
+    setAuthInfo('');
+    setResendBusy(false);
+    setShowResendVerification(false);
+    setPendingVerificationLogin({ email: '', password: '' });
+  }, [stopDictation, stopSpeaking]);
+
   const handleSelectSession = useCallback(
     async (sessionId) => {
       setActiveSessionId(sessionId);
@@ -685,12 +875,13 @@ export default function App() {
 
   const handleSendMessage = useCallback(async () => {
     const text = draft.trim();
-    if (!text || sending || !token) return;
+    if (!text || sending || (!token && !inGuestMode)) return;
 
     const temporaryId = `pending-${Date.now()}`;
+    const nowIso = new Date().toISOString();
     setMessages((prev) => [
       ...prev,
-      { id: temporaryId, role: 'user', text, session_id: activeSessionId || '', created_at: new Date().toISOString() },
+      { id: temporaryId, role: 'user', text, session_id: activeSessionId || '', created_at: nowIso },
     ]);
     setDraft('');
     setSending(true);
@@ -698,11 +889,58 @@ export default function App() {
 
     try {
       const language = containsUrdu(text) ? 'ur' : chatLanguage;
-      const result = await api.chat({ message: text, session_id: activeSessionId || undefined, language }, token);
+      let profilePayload = undefined;
+      if (token) {
+        try {
+          const loadedProfile = await loadMedicalProfile(token);
+          if (loadedProfile) {
+            profilePayload = {
+              age: loadedProfile.age,
+              gender: loadedProfile.gender,
+              medical_history: loadedProfile.medical_history,
+              allergies: loadedProfile.allergies,
+              medications: loadedProfile.medications,
+              chronic_conditions: loadedProfile.chronic_conditions,
+            };
+          }
+        } catch (profileError) {
+          if (!isProfileNotFoundError(profileError)) {
+            throw profileError;
+          }
+        }
+      }
+      const result = await api.chat(
+        {
+          message: text,
+          session_id: activeSessionId || undefined,
+          language,
+          profile: profilePayload,
+        },
+        token
+      );
       const currentId = result.session_id;
-      setActiveSessionId(currentId);
-      await refreshSessions(currentId);
-      await loadHistory(currentId);
+      if (inGuestMode) {
+        if (currentId) {
+          setActiveSessionId(currentId);
+        }
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: result.message_id || `assistant-${Date.now()}`,
+            role: 'assistant',
+            text: result.response || '',
+            structured: result.structured || null,
+            session_id: currentId || activeSessionId || '',
+            emergency: Boolean(result.emergency),
+            language: result.language || language,
+            created_at: new Date().toISOString(),
+          },
+        ]);
+      } else {
+        setActiveSessionId(currentId);
+        await refreshSessions(currentId);
+        await loadHistory(currentId);
+      }
     } catch (error) {
       setMessages((prev) =>
         prev.map((message) => (message.id === temporaryId ? { ...message, failed: true } : message))
@@ -711,9 +949,13 @@ export default function App() {
     } finally {
       setSending(false);
     }
-  }, [activeSessionId, chatLanguage, draft, loadHistory, refreshSessions, sending, token]);
+  }, [activeSessionId, chatLanguage, draft, inGuestMode, loadHistory, loadMedicalProfile, refreshSessions, sending, token]);
 
   const copyShareLink = useCallback(async () => {
+    if (inGuestMode) {
+      setShareError('Sign in to create shareable links.');
+      return;
+    }
     if (!activeSessionId || !token) {
       setShareError('Start or select a conversation first.');
       return;
@@ -729,7 +971,7 @@ export default function App() {
     } finally {
       setShareBusy(false);
     }
-  }, [activeSessionId, token]);
+  }, [activeSessionId, inGuestMode, token]);
 
   const copyChatText = useCallback(async () => {
     if (!sortedMessages.length) {
@@ -752,7 +994,7 @@ export default function App() {
     return <SharedConversationPage shareId={shareRouteId} />;
   }
 
-  if (!authenticated) {
+  if (!authenticated && !inGuestMode) {
     return (
       <AuthCard
         mode={authMode}
@@ -766,13 +1008,14 @@ export default function App() {
         onEmailSignup={handleEmailSignup}
         onGoogleLogin={handleGoogleLogin}
         onResendVerification={handleResendVerification}
+        onContinueAsGuest={handleContinueAsGuest}
       />
     );
   }
 
   return (
     <div className="relative flex h-screen flex-col overflow-hidden bg-slatebg text-slate-100">
-      <MedicalBackground opacity={0.2} />
+      <MedicalBackground opacity={0.15} />
       <div className="relative z-10 flex min-h-0 flex-1 overflow-hidden">
         <aside className={`${sidebarOpen ? 'w-72' : 'w-0'} flex shrink-0 flex-col border-r border-white/10 bg-slate-950/85 transition-all duration-200 backdrop-blur`}>
           <div className={`${sidebarOpen ? 'flex' : 'hidden'} min-h-0 flex-1 flex-col`}>
@@ -796,8 +1039,8 @@ export default function App() {
               <button type="button" onClick={() => setUserMenuOpen((prev) => !prev)} className="flex w-full items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/10">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-cyan-500/20 text-sm font-semibold text-cyan-100">{getInitials(user)}</div>
                 <div className="min-w-0 flex-1 text-left">
-                  <p className="truncate text-sm font-medium text-slate-100">{user?.full_name || 'User'}</p>
-                  <p className="truncate text-xs text-slate-400">{user?.email}</p>
+                  <p className="truncate text-sm font-medium text-slate-100">{inGuestMode ? 'Guest User' : user?.full_name || 'User'}</p>
+                  <p className="truncate text-xs text-slate-400">{inGuestMode ? 'Not signed in' : user?.email}</p>
                 </div>
                 {userMenuOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
               </button>
@@ -805,9 +1048,9 @@ export default function App() {
                 <div className="absolute bottom-14 left-2 right-2 rounded-xl border border-white/15 bg-slate-900/95 p-1 shadow-chat">
                   <button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-white/10"><Sparkles size={15} />Upgrade plan</button>
                   <button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-white/10"><SlidersHorizontal size={15} />Personalization</button>
-                  <button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-white/10"><Settings size={15} />Settings</button>
+                  <button type="button" onClick={handleOpenSettings} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-white/10"><Settings size={15} />Settings</button>
                   <button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-white/10"><HelpCircle size={15} />Help</button>
-                  <button type="button" onClick={logout} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-200 hover:bg-red-500/20"><LogOut size={15} />Log out</button>
+                  <button type="button" onClick={inGuestMode ? handleExitGuestMode : logout} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-200 hover:bg-red-500/20"><LogOut size={15} />{inGuestMode ? 'Sign in' : 'Log out'}</button>
                 </div>
               )}
             </div>
@@ -823,10 +1066,15 @@ export default function App() {
               <div className="rounded-lg bg-emerald-500/20 p-2 text-emerald-300"><Stethoscope size={18} /></div>
               <div>
                 <h1 className="text-sm font-semibold text-white sm:text-base">Personal Doctor AI</h1>
-                <p className="text-xs text-slate-400">{user?.email}</p>
+                <p className="text-xs text-slate-400">{inGuestMode ? 'Guest mode' : user?.email}</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {inGuestMode && (
+                <button type="button" onClick={handleExitGuestMode} className="inline-flex items-center gap-2 rounded-lg border border-cyan-300/35 px-3 py-1.5 text-sm text-cyan-100 hover:bg-cyan-500/10">
+                  Sign in
+                </button>
+              )}
               <div ref={shareMenuRef} className="relative">
                 <button type="button" onClick={() => setShareMenuOpen((prev) => !prev)} className="inline-flex items-center gap-2 rounded-lg border border-white/15 px-3 py-1.5 text-sm text-slate-200 hover:bg-white/10">
                   <Share2 size={14} />Share
@@ -844,6 +1092,12 @@ export default function App() {
               </div>
             </div>
           </header>
+
+          {inGuestMode && (
+            <div className="border-b border-amber-400/30 bg-amber-500/10 px-4 py-2 text-center text-sm text-amber-100">
+              You are using Guest Mode. Chats will not be saved.
+            </div>
+          )}
 
           <section className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
             <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
@@ -899,6 +1153,145 @@ export default function App() {
           </div>
         </main>
       </div>
+      {settingsOpen && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-950/75 backdrop-blur-sm"
+            onClick={handleCloseSettings}
+            aria-label="Close settings"
+          />
+          <div className="relative z-10 w-full max-w-2xl rounded-2xl border border-white/15 bg-slate-900/95 p-5 shadow-chat">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-wider text-slate-400">Settings</p>
+                <h2 className="text-lg font-semibold text-white">Medical Profile</h2>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseSettings}
+                className="rounded-lg border border-white/20 px-3 py-1.5 text-sm text-slate-200 hover:bg-white/10"
+              >
+                Close
+              </button>
+            </div>
+            {profileError && (
+              <p className="mb-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                {profileError}
+              </p>
+            )}
+            {profileInfo && (
+              <p className="mb-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
+                {profileInfo}
+              </p>
+            )}
+            <form className="space-y-3" onSubmit={handleProfileSubmit}>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm text-slate-300" htmlFor="profile_age">
+                    Age
+                  </label>
+                  <input
+                    id="profile_age"
+                    type="number"
+                    min={0}
+                    max={130}
+                    value={profileForm.age}
+                    onChange={(event) => handleProfileFieldChange('age', event.target.value)}
+                    className="w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-cyan-400/30 focus:ring-2"
+                    placeholder="e.g. 29"
+                    disabled={profileBusy || profileSaving}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm text-slate-300" htmlFor="profile_gender">
+                    Gender
+                  </label>
+                  <select
+                    id="profile_gender"
+                    value={profileForm.gender}
+                    onChange={(event) => handleProfileFieldChange('gender', event.target.value)}
+                    className="w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-cyan-400/30 focus:ring-2"
+                    disabled={profileBusy || profileSaving}
+                  >
+                    <option value="">Not specified</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="other">Other</option>
+                    <option value="prefer_not_to_say">Prefer not to say</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm text-slate-300" htmlFor="profile_medical_history">
+                  Medical History
+                </label>
+                <textarea
+                  id="profile_medical_history"
+                  value={profileForm.medical_history}
+                  onChange={(event) => handleProfileFieldChange('medical_history', event.target.value)}
+                  rows={3}
+                  className="w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-cyan-400/30 focus:ring-2"
+                  placeholder="Past medical history"
+                  disabled={profileBusy || profileSaving}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm text-slate-300" htmlFor="profile_allergies">
+                  Allergies
+                </label>
+                <textarea
+                  id="profile_allergies"
+                  value={profileForm.allergies}
+                  onChange={(event) => handleProfileFieldChange('allergies', event.target.value)}
+                  rows={2}
+                  className="w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-cyan-400/30 focus:ring-2"
+                  placeholder="Known allergies"
+                  disabled={profileBusy || profileSaving}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm text-slate-300" htmlFor="profile_medications">
+                  Medications
+                </label>
+                <textarea
+                  id="profile_medications"
+                  value={profileForm.medications}
+                  onChange={(event) => handleProfileFieldChange('medications', event.target.value)}
+                  rows={2}
+                  className="w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-cyan-400/30 focus:ring-2"
+                  placeholder="Current medications"
+                  disabled={profileBusy || profileSaving}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm text-slate-300" htmlFor="profile_chronic_conditions">
+                  Chronic Conditions
+                </label>
+                <textarea
+                  id="profile_chronic_conditions"
+                  value={profileForm.chronic_conditions}
+                  onChange={(event) => handleProfileFieldChange('chronic_conditions', event.target.value)}
+                  rows={2}
+                  className="w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-cyan-400/30 focus:ring-2"
+                  placeholder="Chronic conditions"
+                  disabled={profileBusy || profileSaving}
+                />
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={profileBusy || profileSaving}
+                  className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-emerald-400 disabled:opacity-60"
+                >
+                  {(profileBusy || profileSaving) && <Loader2 size={15} className="animate-spin" />}
+                  Save profile
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       <footer className="relative z-10 border-t border-white/10 bg-slate-900/85 px-4 py-2 text-center text-xs text-slate-400 backdrop-blur">
         Not a substitute for professional medical advice. Sohaib Shahid — All Rights Reserved.
       </footer>

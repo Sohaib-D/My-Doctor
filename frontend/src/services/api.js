@@ -164,6 +164,25 @@ export const api = {
       allowUnauthenticated: true,
     });
   },
+  getProfile(token) {
+    return request('/profile', { token, allowUnauthenticated: true });
+  },
+  createProfile(payload, token) {
+    return request('/profile', {
+      method: 'POST',
+      body: payload,
+      token,
+      allowUnauthenticated: true,
+    });
+  },
+  updateProfile(payload, token) {
+    return request('/profile', {
+      method: 'PUT',
+      body: payload,
+      token,
+      allowUnauthenticated: true,
+    });
+  },
   createShare(sessionId, token) {
     return request(`/sessions/${encodeURIComponent(sessionId)}/share`, {
       method: 'POST',
@@ -175,4 +194,3 @@ export const api = {
     return request(`/share/${encodeURIComponent(shareId)}`);
   },
 };
-

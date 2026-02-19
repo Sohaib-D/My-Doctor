@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from backend.auth.deps import get_current_user, get_current_user_optional
 from backend.config import get_settings
-from backend.database.models import ChatMessage, ChatSession, User, UserProfile
+from backend.database.models import ChatMessage, ChatSession, User, UserMedicalProfile
 from backend.database.session import get_db
 from backend.schemas.chat import (
     ChatRequest,
@@ -58,7 +58,7 @@ def _get_or_create_session(db: Session, user: User, session_id: str | None, firs
     return session
 
 
-def _serialize_profile(row: UserProfile | None) -> dict[str, str | int]:
+def _serialize_profile(row: UserMedicalProfile | None) -> dict[str, str | int]:
     if not row:
         return {}
     payload: dict[str, str | int] = {}
@@ -70,8 +70,8 @@ def _serialize_profile(row: UserProfile | None) -> dict[str, str | int]:
         payload["medical_history"] = row.medical_history
     if row.allergies:
         payload["allergies"] = row.allergies
-    if row.current_medications:
-        payload["current_medications"] = row.current_medications
+    if row.medications:
+        payload["medications"] = row.medications
     if row.chronic_conditions:
         payload["chronic_conditions"] = row.chronic_conditions
     return payload
@@ -80,16 +80,21 @@ def _serialize_profile(row: UserProfile | None) -> dict[str, str | int]:
 def _profile_context(db: Session, current_user: User | None, payload: ChatRequest) -> dict[str, str | int]:
     context: dict[str, str | int] = {}
     if current_user:
-        row = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
+        row = (
+            db.query(UserMedicalProfile)
+            .filter(UserMedicalProfile.firebase_uid == current_user.google_sub)
+            .first()
+        )
         context.update(_serialize_profile(row))
     if payload.profile:
         for key, value in payload.profile.model_dump(exclude_none=True).items():
+            mapped_key = "medications" if key == "current_medications" else key
             if isinstance(value, str):
                 text = value.strip()
                 if text:
-                    context[key] = text
+                    context[mapped_key] = text
             elif value is not None:
-                context[key] = value
+                context[mapped_key] = value
     return context
 
 

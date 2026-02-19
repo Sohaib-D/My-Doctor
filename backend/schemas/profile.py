@@ -11,7 +11,7 @@ class UserProfileBase(BaseModel):
     gender: Literal["male", "female", "other", "prefer_not_to_say"] | None = None
     medical_history: str | None = Field(default=None, max_length=4000)
     allergies: str | None = Field(default=None, max_length=4000)
-    current_medications: str | None = Field(default=None, max_length=4000)
+    medications: str | None = Field(default=None, max_length=4000)
     chronic_conditions: str | None = Field(default=None, max_length=4000)
 
 
@@ -24,7 +24,6 @@ class UserProfileUpdate(UserProfileBase):
 
 
 class UserProfileResponse(UserProfileBase):
-    user_id: str
+    firebase_uid: str
     created_at: datetime | None = None
     updated_at: datetime | None = None
-

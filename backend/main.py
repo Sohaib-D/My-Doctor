@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.config import get_settings
 from backend.database.session import init_db
-from backend.routers import auth_router, chat_router, health_router, history_router, tools_router
+from backend.routers import auth_router, chat_router, health_router, history_router, profile_router, tools_router
 from backend.utils.logging import logger, setup_logging
 
 
@@ -40,6 +40,7 @@ app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(history_router)
+app.include_router(profile_router)
 app.include_router(tools_router)
 
 
@@ -82,4 +83,3 @@ def spa_fallback(full_path: str):
     if candidate.is_file():
         return FileResponse(str(candidate))
     return _frontend_entry()
-

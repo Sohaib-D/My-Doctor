@@ -167,5 +167,25 @@ class UserSettings(Base):
     user: Mapped[User] = relationship("User", back_populates="settings")
 
 
+class UserMedicalProfile(Base):
+    __tablename__ = "user_profile"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    firebase_uid: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    age: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    gender: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    medical_history: Mapped[str | None] = mapped_column(Text, nullable=True)
+    allergies: Mapped[str | None] = mapped_column(Text, nullable=True)
+    medications: Mapped[str | None] = mapped_column(Text, nullable=True)
+    chronic_conditions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+
 Index("ix_chat_messages_user_created", ChatMessage.user_id, ChatMessage.created_at)
 Index("ix_chat_messages_session_created", ChatMessage.session_id, ChatMessage.created_at)
