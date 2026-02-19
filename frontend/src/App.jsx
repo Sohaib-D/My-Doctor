@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Archive,
   ChevronDown,
   ChevronUp,
   Copy,
@@ -10,6 +11,8 @@ import {
   LogOut,
   Menu,
   Mic,
+  MoreHorizontal,
+  Pin,
   Plus,
   Search,
   SendHorizontal,
@@ -18,6 +21,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Stethoscope,
+  Trash2,
   Volume2,
   VolumeX,
 } from 'lucide-react';
@@ -248,6 +252,8 @@ export default function App() {
   const [chatSearch, setChatSearch] = useState('');
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
+  const [sessionMenuOpenId, setSessionMenuOpenId] = useState('');
+  const [sessionActionBusyId, setSessionActionBusyId] = useState('');
 
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState('');
@@ -290,11 +296,26 @@ export default function App() {
     [messages]
   );
   const filteredSessions = useMemo(() => {
+    const toTimestamp = (value) => {
+      const parsed = new Date(value || '').getTime();
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
     const query = chatSearch.trim().toLowerCase();
+    const visibleSessions = sessions
+      .filter((session) => !session?.is_archived)
+      .sort((left, right) => {
+        const pinDiff = Number(Boolean(right?.is_pinned)) - Number(Boolean(left?.is_pinned));
+        if (pinDiff !== 0) {
+          return pinDiff;
+        }
+        const leftPinned = toTimestamp(left?.pinned_at || left?.last_message_at || left?.created_at);
+        const rightPinned = toTimestamp(right?.pinned_at || right?.last_message_at || right?.created_at);
+        return rightPinned - leftPinned;
+      });
     if (!query) {
-      return sessions;
+      return visibleSessions;
     }
-    return sessions.filter((session) => (session.title || '').toLowerCase().includes(query));
+    return visibleSessions.filter((session) => (session.title || '').toLowerCase().includes(query));
   }, [chatSearch, sessions]);
 
   const clearSilenceTimer = useCallback(() => {
@@ -344,6 +365,8 @@ export default function App() {
     setDraft('');
     setChatError('');
     setShareError('');
+    setSessionMenuOpenId('');
+    setSessionActionBusyId('');
     setIsSidebarOpen(true);
     setSidebarWidth(SIDEBAR_OPEN_WIDTH);
     setSidebarResizing(false);
@@ -372,6 +395,7 @@ export default function App() {
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
     setUserMenuOpen(false);
+    setSessionMenuOpenId('');
     if (isMobileLayout) {
       setSearchChatsOpen(false);
       setChatSearch('');
@@ -386,6 +410,7 @@ export default function App() {
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
         setUserMenuOpen(false);
+        setSessionMenuOpenId('');
         if (isMobileLayout) {
           setSearchChatsOpen(false);
           setChatSearch('');
@@ -661,6 +686,9 @@ export default function App() {
       }
       if (shareMenuRef.current && !shareMenuRef.current.contains(event.target)) {
         setShareMenuOpen(false);
+      }
+      if (event.target instanceof Element && !event.target.closest('[data-session-menu]')) {
+        setSessionMenuOpenId('');
       }
     };
     document.addEventListener('mousedown', onPointerDown);
@@ -1055,6 +1083,8 @@ export default function App() {
     setDraft('');
     setChatError('');
     setShareError('');
+    setSessionMenuOpenId('');
+    setSessionActionBusyId('');
     setSettingsOpen(false);
     setSearchChatsOpen(false);
     setChatSearch('');
@@ -1075,6 +1105,7 @@ export default function App() {
 
   const handleSelectSession = useCallback(
     async (sessionId) => {
+      setSessionMenuOpenId('');
       setActiveSessionId(sessionId);
       await loadHistory(sessionId);
       if (isMobileLayout) {
@@ -1085,6 +1116,7 @@ export default function App() {
   );
 
   const handleNewChat = useCallback(() => {
+    setSessionMenuOpenId('');
     setActiveSessionId('');
     setMessages([]);
     setChatError('');
@@ -1102,6 +1134,88 @@ export default function App() {
       return next;
     });
   }, []);
+
+  const handleToggleSessionMenu = useCallback((sessionId) => {
+    setSessionMenuOpenId((prev) => (prev === sessionId ? '' : sessionId));
+  }, []);
+
+  const handlePinSession = useCallback(
+    async (session) => {
+      if (!token || inGuestMode || !session?.id) {
+        return;
+      }
+      setSessionActionBusyId(session.id);
+      setChatError('');
+      try {
+        await api.pinChat(session.id, !Boolean(session.is_pinned), token);
+        await refreshSessions(activeSessionId || session.id, token);
+      } catch (error) {
+        setChatError(error.message);
+      } finally {
+        setSessionActionBusyId('');
+        setSessionMenuOpenId('');
+      }
+    },
+    [activeSessionId, inGuestMode, refreshSessions, token]
+  );
+
+  const handleArchiveSession = useCallback(
+    async (session) => {
+      if (!token || inGuestMode || !session?.id) {
+        return;
+      }
+      setSessionActionBusyId(session.id);
+      setChatError('');
+      try {
+        await api.archiveChat(session.id, true, token);
+        if (activeSessionId === session.id) {
+          const nextSessionId = await refreshSessions('', token);
+          if (nextSessionId) {
+            await loadHistory(nextSessionId, token);
+          } else {
+            setMessages([]);
+          }
+        } else {
+          await refreshSessions(activeSessionId, token);
+        }
+      } catch (error) {
+        setChatError(error.message);
+      } finally {
+        setSessionActionBusyId('');
+        setSessionMenuOpenId('');
+      }
+    },
+    [activeSessionId, inGuestMode, loadHistory, refreshSessions, token]
+  );
+
+  const handleDeleteSession = useCallback(
+    async (session) => {
+      if (!token || inGuestMode || !session?.id) {
+        return;
+      }
+      setSessionActionBusyId(session.id);
+      setChatError('');
+      try {
+        await api.deleteChat(session.id, token);
+        if (activeSessionId === session.id) {
+          const nextSessionId = await refreshSessions('', token);
+          if (nextSessionId) {
+            await loadHistory(nextSessionId, token);
+          } else {
+            setMessages([]);
+          }
+        } else {
+          await refreshSessions(activeSessionId, token);
+        }
+      } catch (error) {
+        setChatError(error.message);
+      } finally {
+        setSessionActionBusyId('');
+        setSessionMenuOpenId('');
+      }
+    },
+    [activeSessionId, inGuestMode, loadHistory, refreshSessions, token]
+  );
 
   const handleSendMessage = useCallback(async () => {
     const text = draft.trim();
@@ -1338,19 +1452,85 @@ export default function App() {
             {isSidebarOpen && (
               <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
                 {filteredSessions.map((session) => (
-                  <button
-                    key={session.id}
-                    type="button"
-                    onClick={() => handleSelectSession(session.id)}
-                    className={`mb-1 w-full rounded-lg px-3 py-2 text-left transition ${
-                      activeSessionId === session.id ? 'bg-emerald-500/20 text-emerald-100' : 'hover:bg-white/5'
-                    }`}
-                  >
-                    <p className="truncate text-sm font-medium">{session.title}</p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      {formatSessionDate(session.last_message_at || session.created_at)}
-                    </p>
-                  </button>
+                  <div key={session.id} className="group relative mb-1">
+                    <button
+                      type="button"
+                      onClick={() => handleSelectSession(session.id)}
+                      className={`w-full rounded-lg px-3 py-2 pr-10 text-left transition ${
+                        activeSessionId === session.id ? 'bg-emerald-500/20 text-emerald-100' : 'hover:bg-white/5'
+                      }`}
+                    >
+                      <p className="truncate text-sm font-medium">{session.title}</p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        {formatSessionDate(session.last_message_at || session.created_at)}
+                      </p>
+                    </button>
+
+                    {!inGuestMode && (
+                      <div data-session-menu className="absolute right-1 top-1">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleToggleSessionMenu(session.id);
+                          }}
+                          disabled={sessionActionBusyId === session.id}
+                          className={`inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-300 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 ${
+                            sessionMenuOpenId === session.id
+                              ? 'bg-white/10 text-white opacity-100'
+                              : 'opacity-100 md:opacity-0 md:group-hover:opacity-100'
+                          }`}
+                          aria-label="Conversation options"
+                        >
+                          <MoreHorizontal size={15} />
+                        </button>
+
+                        {sessionMenuOpenId === session.id && (
+                          <div
+                            data-session-menu
+                            className="absolute right-0 top-8 z-30 w-36 rounded-lg border border-white/15 bg-slate-900/95 p-1 shadow-chat"
+                          >
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handlePinSession(session);
+                              }}
+                              disabled={sessionActionBusyId === session.id}
+                              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              <Pin size={14} />
+                              {session.is_pinned ? 'Unpin' : 'Pin'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleArchiveSession(session);
+                              }}
+                              disabled={sessionActionBusyId === session.id}
+                              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              <Archive size={14} />
+                              Archive
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleDeleteSession(session);
+                              }}
+                              disabled={sessionActionBusyId === session.id}
+                              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-red-200 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              <Trash2 size={14} />
+                              Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 ))}
                 {!filteredSessions.length && (
                   <p className="px-2 pt-2 text-sm text-slate-400">{chatSearch.trim() ? 'No chats found.' : 'No chats yet.'}</p>

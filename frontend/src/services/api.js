@@ -164,6 +164,38 @@ export const api = {
       allowUnauthenticated: true,
     });
   },
+  pinChat(sessionId, isPinned, token) {
+    return request('/chat/pin', {
+      method: 'POST',
+      body: {
+        session_id: sessionId,
+        is_pinned: Boolean(isPinned),
+      },
+      token,
+      allowUnauthenticated: true,
+    });
+  },
+  archiveChat(sessionId, isArchived, token) {
+    return request('/chat/archive', {
+      method: 'POST',
+      body: {
+        session_id: sessionId,
+        is_archived: Boolean(isArchived),
+      },
+      token,
+      allowUnauthenticated: true,
+    });
+  },
+  deleteChat(sessionId, token) {
+    return request('/chat/delete', {
+      method: 'POST',
+      body: {
+        session_id: sessionId,
+      },
+      token,
+      allowUnauthenticated: true,
+    });
+  },
   getProfile(token) {
     return request('/profile', { token, allowUnauthenticated: true });
   },
