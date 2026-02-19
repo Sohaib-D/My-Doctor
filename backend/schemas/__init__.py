@@ -5,7 +5,18 @@ from backend.schemas.chat import (
     StructuredMedicalResponse,
     HistoryMessage,
     HistoryResponse,
+    SessionSummary,
+    SessionListResponse,
+    ShareSessionResponse,
+    SharedConversationResponse,
+    ProfileContext,
+    SessionPinRequest,
+    SessionArchiveRequest,
+    SessionDeleteRequest,
+    SessionActionResponse,
 )
+from backend.schemas.profile import UserProfileCreate, UserProfileResponse, UserProfileUpdate
+from backend.schemas.settings import UserSettingsResponse, UserSettingsUpdate
 from backend.schemas.tools import DrugInfo, ResearchArticle, ResearchResponse, WHOStatsResponse
 
 __all__ = [
@@ -17,6 +28,20 @@ __all__ = [
     "StructuredMedicalResponse",
     "HistoryMessage",
     "HistoryResponse",
+    "SessionSummary",
+    "SessionListResponse",
+    "ShareSessionResponse",
+    "SharedConversationResponse",
+    "ProfileContext",
+    "SessionPinRequest",
+    "SessionArchiveRequest",
+    "SessionDeleteRequest",
+    "SessionActionResponse",
+    "UserProfileCreate",
+    "UserProfileResponse",
+    "UserProfileUpdate",
+    "UserSettingsResponse",
+    "UserSettingsUpdate",
     "DrugInfo",
     "ResearchArticle",
     "ResearchResponse",

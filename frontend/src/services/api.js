@@ -67,7 +67,7 @@ function buildHeaders(token, includeJson = true) {
   return headers;
 }
 
-function withTimeout(signal, timeoutMs = 15000) {
+function withTimeout(signal, timeoutMs = 20000) {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
 
@@ -105,7 +105,7 @@ function toMessage(status, payload) {
   return `Request failed (${status}).`;
 }
 
-async function request(path, { method = 'GET', body, token, signal } = {}) {
+async function request(path, { method = 'GET', body, token, signal, allowUnauthenticated = false } = {}) {
   for (const base of API_BASES) {
     const { signal: timedSignal, clear } = withTimeout(signal);
     try {
@@ -118,9 +118,11 @@ async function request(path, { method = 'GET', body, token, signal } = {}) {
 
       const payload = await readJsonSafe(response);
       if (!response.ok) {
+        if (allowUnauthenticated && response.status === 401) {
+          throw new Error('Session expired. Please sign in again.');
+        }
         throw new Error(toMessage(response.status, payload));
       }
-
       return payload;
     } catch (error) {
       const isNetworkIssue =
@@ -134,29 +136,43 @@ async function request(path, { method = 'GET', body, token, signal } = {}) {
   }
 
   const tried = API_BASES.map((base) => (base || '[same-origin]')).join(', ');
-  throw new Error(
-    `Unable to connect to backend. Tried ${tried}. Ensure server is running at http://127.0.0.1:8000.`
-  );
+  throw new Error(`Unable to reach server. Tried ${tried}. Please check backend connectivity.`);
 }
 
 export const api = {
-  register(payload) {
-    return request('/auth/register', { method: 'POST', body: payload });
-  },
-  login(payload) {
-    return request('/auth/login', { method: 'POST', body: payload });
+  loginWithFirebaseToken(firebaseIdToken) {
+    return request('/login', {
+      method: 'POST',
+      body: { firebase_id_token: firebaseIdToken },
+    });
   },
   me(token) {
-    return request('/auth/me', { token });
+    return request('/auth/me', { token, allowUnauthenticated: true });
   },
   sessions(token) {
-    return request('/sessions', { token });
+    return request('/sessions', { token, allowUnauthenticated: true });
   },
   history(token, sessionId) {
     const query = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '';
-    return request(`/history${query}`, { token });
+    return request(`/history${query}`, { token, allowUnauthenticated: true });
   },
   chat(payload, token) {
-    return request('/chat', { method: 'POST', body: payload, token });
+    return request('/chat', {
+      method: 'POST',
+      body: payload,
+      token,
+      allowUnauthenticated: true,
+    });
+  },
+  createShare(sessionId, token) {
+    return request(`/sessions/${encodeURIComponent(sessionId)}/share`, {
+      method: 'POST',
+      token,
+      allowUnauthenticated: true,
+    });
+  },
+  getSharedConversation(shareId) {
+    return request(`/share/${encodeURIComponent(shareId)}`);
   },
 };
+

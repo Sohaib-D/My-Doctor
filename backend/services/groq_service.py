@@ -86,14 +86,17 @@ async def ask_groq_structured(
     message: str,
     language: str,
     reference_hints: list[str],
+    profile_context: dict[str, str | int] | None = None,
 ) -> StructuredMedicalResponse:
     settings = get_settings()
     if not settings.groq_api_key:
         raise ValueError("GROQ_API_KEY is not configured.")
 
+    profile_json = json.dumps(profile_context or {}, ensure_ascii=False)
     user_prompt = (
         f"User language: {language}\n"
         f"User message: {message}\n"
+        f"User medical profile JSON: {profile_json}\n"
         f"Candidate references: {reference_hints}\n"
         "Return strict JSON only."
     )

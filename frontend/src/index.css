@@ -37,3 +37,292 @@ body,
   background: rgba(148, 163, 184, 0.45);
 }
 
+.medical-float {
+  animation: medical-float 12s ease-in-out infinite;
+}
+
+.medical-background {
+  isolation: isolate;
+}
+
+.medical-grid-overlay {
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
+  background-size: 44px 44px;
+  opacity: 0.2;
+}
+
+.medical-vignette {
+  background: radial-gradient(circle at 50% 40%, transparent 34%, rgba(2, 6, 23, 0.35) 100%);
+}
+
+.medical-node {
+  transform-style: preserve-3d;
+  will-change: transform;
+  opacity: var(--medical-opacity, 0.3);
+}
+
+.medical-lungs {
+  position: relative;
+  width: 82px;
+  height: 88px;
+  filter: drop-shadow(0 4px 14px rgba(125, 211, 252, 0.15));
+}
+
+.medical-lungs .lung {
+  position: absolute;
+  top: 18px;
+  width: 32px;
+  height: 52px;
+  border: 2px solid rgba(186, 230, 253, 0.4);
+  border-radius: 20px 20px 24px 24px;
+  background: linear-gradient(180deg, rgba(125, 211, 252, 0.15), rgba(59, 130, 246, 0.05));
+}
+
+.medical-lungs .lung.left {
+  left: 6px;
+}
+
+.medical-lungs .lung.right {
+  right: 6px;
+}
+
+.medical-lungs .trachea {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 6px;
+  height: 28px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: rgba(186, 230, 253, 0.45);
+}
+
+.medical-xray-bars {
+  display: grid;
+  grid-template-columns: repeat(7, 6px);
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(186, 230, 253, 0.3);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.25);
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.28), 0 8px 24px rgba(15, 23, 42, 0.22);
+}
+
+.medical-xray-bars span {
+  width: 6px;
+  height: 28px;
+  border-radius: 999px;
+  background: rgba(186, 230, 253, 0.35);
+  animation: xray-pulse 1.7s ease-in-out infinite;
+}
+
+.medical-xray-bars span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.medical-xray-bars span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+.medical-xray-bars span:nth-child(4) {
+  animation-delay: 0.6s;
+}
+
+.medical-xray-bars span:nth-child(5) {
+  animation-delay: 0.8s;
+}
+
+.medical-xray-bars span:nth-child(6) {
+  animation-delay: 1s;
+}
+
+.medical-xray-bars span:nth-child(7) {
+  animation-delay: 1.2s;
+}
+
+.medical-xray-panel {
+  position: relative;
+  width: 104px;
+  height: 128px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: linear-gradient(165deg, rgba(14, 116, 144, 0.15), rgba(30, 64, 175, 0.08));
+  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.25), inset 0 0 0 1px rgba(186, 230, 253, 0.12);
+  overflow: hidden;
+}
+
+.medical-xray-panel .xray-ring {
+  position: absolute;
+  top: 22%;
+  left: 50%;
+  width: 52px;
+  height: 52px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  border: 2px solid rgba(125, 211, 252, 0.35);
+  box-shadow: inset 0 0 14px rgba(186, 230, 253, 0.15);
+}
+
+.medical-xray-panel .xray-line-grid {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  display: grid;
+  grid-template-columns: repeat(6, 6px);
+  gap: 3px;
+  transform: translateX(-50%);
+}
+
+.medical-xray-panel .xray-line-grid span {
+  width: 6px;
+  height: 30px;
+  border-radius: 999px;
+  background: rgba(125, 211, 252, 0.3);
+  animation: xray-pulse 2s ease-in-out infinite;
+}
+
+.medical-thermometer {
+  position: relative;
+  width: 28px;
+  height: 100px;
+  transform: rotate(12deg);
+}
+
+.medical-thermometer .tube {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 10px;
+  height: 72px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  border: 1px solid rgba(186, 230, 253, 0.45);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.medical-thermometer .mercury {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  width: 5px;
+  height: 40px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(45, 212, 191, 0.7), rgba(20, 184, 166, 0.45));
+  animation: thermometer-rise 2.5s ease-in-out infinite;
+}
+
+.medical-thermometer .bulb {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 22px;
+  height: 22px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  border: 1px solid rgba(186, 230, 253, 0.45);
+  background: radial-gradient(circle at 30% 30%, rgba(45, 212, 191, 0.9), rgba(20, 184, 166, 0.45));
+  box-shadow: 0 0 12px rgba(45, 212, 191, 0.18);
+}
+
+.medical-capsule {
+  position: relative;
+  width: 86px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(186, 230, 253, 0.35);
+  overflow: hidden;
+  transform: rotate(-22deg);
+  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.24);
+}
+
+.medical-capsule .cap {
+  position: absolute;
+  top: 0;
+  width: 50%;
+  height: 100%;
+}
+
+.medical-capsule .cap.left {
+  left: 0;
+  background: linear-gradient(180deg, rgba(125, 211, 252, 0.32), rgba(59, 130, 246, 0.16));
+}
+
+.medical-capsule .cap.right {
+  right: 0;
+  background: linear-gradient(180deg, rgba(45, 212, 191, 0.34), rgba(16, 185, 129, 0.16));
+}
+
+.medical-capsule .seam {
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  bottom: 2px;
+  width: 1px;
+  transform: translateX(-50%);
+  background: rgba(226, 232, 240, 0.4);
+}
+
+@keyframes medical-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg) rotate(0deg);
+  }
+  25% {
+    transform: translate3d(8px, -7px, 8px) rotateX(2deg) rotateY(-5deg) rotate(1.4deg);
+  }
+  50% {
+    transform: translate3d(-6px, -16px, 12px) rotateX(-2.5deg) rotateY(6deg) rotate(-1.2deg);
+  }
+  75% {
+    transform: translate3d(-9px, -8px, 7px) rotateX(1.8deg) rotateY(-3.5deg) rotate(1deg);
+  }
+}
+
+@keyframes xray-pulse {
+  0%,
+  100% {
+    transform: scaleY(0.7);
+    opacity: 0.35;
+  }
+  50% {
+    transform: scaleY(1.05);
+    opacity: 0.55;
+  }
+}
+
+@keyframes thermometer-rise {
+  0%,
+  100% {
+    height: 34px;
+  }
+  50% {
+    height: 46px;
+  }
+}
+
+@media (max-width: 900px) {
+  .medical-grid-overlay {
+    opacity: 0.14;
+  }
+}
+
+@media (max-width: 768px) {
+  .mobile-hide {
+    display: none;
+  }
+
+  .medical-lungs {
+    transform: scale(0.82);
+  }
+
+  .medical-capsule {
+    transform: scale(0.82) rotate(-18deg);
+  }
+
+  .medical-float {
+    animation-duration: 14s;
+  }
+}

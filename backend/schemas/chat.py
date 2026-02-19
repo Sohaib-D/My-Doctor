@@ -20,6 +20,7 @@ class ChatRequest(BaseModel):
     voice_text: str | None = None
     session_id: str | None = None
     language: Literal["en", "ur"] | None = None
+    profile: ProfileContext | None = None
 
     @model_validator(mode="after")
     def require_text_or_voice(self) -> "ChatRequest":
@@ -66,7 +67,51 @@ class SessionSummary(BaseModel):
     created_at: datetime
     last_message_at: datetime | None = None
     message_count: int
+    is_pinned: bool = False
+    is_archived: bool = False
+    pinned_at: datetime | None = None
 
 
 class SessionListResponse(BaseModel):
     sessions: list[SessionSummary]
+
+
+class ShareSessionResponse(BaseModel):
+    share_id: str
+    share_url: str
+    session_id: str
+
+
+class SharedConversationResponse(BaseModel):
+    share_id: str
+    session_id: str
+    title: str
+    messages: list[HistoryMessage]
+
+
+class ProfileContext(BaseModel):
+    age: int | None = None
+    gender: str | None = None
+    medical_history: str | None = None
+    allergies: str | None = None
+    current_medications: str | None = None
+    chronic_conditions: str | None = None
+
+
+class SessionPinRequest(BaseModel):
+    session_id: str
+    is_pinned: bool = True
+
+
+class SessionArchiveRequest(BaseModel):
+    session_id: str
+    is_archived: bool = True
+
+
+class SessionDeleteRequest(BaseModel):
+    session_id: str
+
+
+class SessionActionResponse(BaseModel):
+    status: str = "ok"
+    session_id: str

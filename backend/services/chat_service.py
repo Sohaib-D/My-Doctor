@@ -42,7 +42,11 @@ def format_structured_for_chat(payload: StructuredMedicalResponse, language: str
     )
 
 
-async def generate_medical_response(message: str, requested_language: str | None = None):
+async def generate_medical_response(
+    message: str,
+    requested_language: str | None = None,
+    profile_context: dict[str, str | int] | None = None,
+):
     language = detect_language(message, requested_language)
     emergency = detect_emergency(message)
 
@@ -57,6 +61,7 @@ async def generate_medical_response(message: str, requested_language: str | None
             message=message,
             language=language,
             reference_hints=reference_links,
+            profile_context=profile_context or {},
         )
     except Exception as exc:
         logger.warning("Using fallback medical response. Reason: %s", str(exc))
