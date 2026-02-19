@@ -3,3 +3,22 @@ __pycache__/
 venv/
 .venv/
 *.pyc
+frontend/node_modules/
+frontend/dist/
+# Python
+venv/
+__pycache__/
+*.pyc
+.env
+
+# Node
+node_modules/
+dist/
+build/
+
+# Firebase secrets
+serviceAccountKey.json
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,1554 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr" data-theme="dark">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>My Doctor — AI Medical Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Cabinet+Grotesk:wght@400;500;600;700;800&family=Bricolage+Grotesque:opsz,wght@12..96,300;400;500;600;700&family=Noto+Nastaliq+Urdu:wght@400;600;700&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+/* ════════════ TOKENS ════════════ */
+[data-theme="dark"]{
+  --bg0:#080810;--bg1:#0e0e18;--bg2:#13131f;--bg3:#1a1a28;--bg4:#222235;--bg5:#2a2a40;
+  --line:rgba(255,255,255,0.07);--line2:rgba(255,255,255,0.12);
+  --tx0:#f0f0ff;--tx1:#b8b8d0;--tx2:#7070a0;--tx3:#44445a;
+  --a1:#7c6aff;--a2:#a78bfa;--a3:#c4b5fd;
+  --ai-bg:#13131f;
+  --ai-bg-trans:rgba(19,19,31,0.6);
+  --a1g:rgba(124,106,255,0.15);--a1gs:rgba(124,106,255,0.08);
+  --cyan:#22d3ee;--cyan-g:rgba(34,211,238,0.12);
+  --rose:#fb7185;--rose-g:rgba(251,113,133,0.12);
+  --amber:#fbbf24;--amber-g:rgba(251,191,36,0.1);
+  --green:#34d399;--green-g:rgba(52,211,153,0.1);
+  --user-bg:#7c6aff;--ai-bg:#13131f;--ai-border:rgba(255,255,255,0.08);
+  --input-bg:#0e0e18;--card-bg:#0e0e18;
+  --card-border:rgba(255,255,255,0.07);--card-hover-border:rgba(124,106,255,0.4);
+  --shadow1:0 4px 24px rgba(0,0,0,0.4);--shadow2:0 8px 48px rgba(0,0,0,0.5);
+  --glow-a:0 0 40px rgba(124,106,255,0.3);
+  --scrollbar:#2a2a40;--scrollbar-thumb:#44445a;
+  --med-opacity:0.08; /* more visible icons */
+}
+[data-theme="light"]{
+  --bg0:#f5f5fb;--bg1:#ffffff;--bg2:#f0f0f8;--bg3:#e8e8f4;--bg4:#dcdcec;--bg5:#d0d0e4;
+  --line:rgba(0,0,0,0.06);--line2:rgba(0,0,0,0.12);
+  --tx0:#0a0a18;--tx1:#2a2a48;--tx2:#6868a0;--tx3:#aaaac8;
+  --a1:#6355e8;--a2:#7c6aff;--a3:#a78bfa;
+  --ai-bg:#ffffff;
+  --ai-bg-trans:rgba(255,255,255,0.6);
+  --a1g:rgba(99,85,232,0.1);--a1gs:rgba(99,85,232,0.05);
+  --cyan:#0891b2;--cyan-g:rgba(8,145,178,0.1);
+  --rose:#e11d48;--rose-g:rgba(225,29,72,0.08);
+  --amber:#d97706;--amber-g:rgba(217,119,6,0.08);
+  --green:#059669;--green-g:rgba(5,150,105,0.08);
+  --user-bg:#6355e8;--ai-bg:#ffffff;--ai-border:rgba(0,0,0,0.08);
+  --input-bg:#f8f8fc;--card-bg:#ffffff;
+  --card-border:rgba(0,0,0,0.07);--card-hover-border:rgba(99,85,232,0.35);
+  --shadow1:0 4px 24px rgba(0,0,0,0.08);--shadow2:0 8px 48px rgba(0,0,0,0.12);
+  --glow-a:0 0 40px rgba(99,85,232,0.15);
+  --scrollbar:#e0e0ec;--scrollbar-thumb:#b0b0d0;
+  --med-opacity:0.06;
+}
+/* ════════════ RESET ════════════ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Cabinet Grotesk',sans-serif;background:var(--bg0);color:var(--tx0);min-height:100vh;line-height:1.6;transition:background .35s,color .35s;overflow-x:hidden}
+body.urdu{font-family:'Noto Nastaliq Urdu',serif;direction:rtl}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--scrollbar)}
+::-webkit-scrollbar-thumb{background:var(--scrollbar-thumb);border-radius:99px}
+::selection{background:var(--a1g);color:var(--a2)}
+
+/* ════════════ KEYFRAMES ════════════ */
+@keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes scaleIn{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:scale(1)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes blobPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+@keyframes emergencyGlow{0%,100%{box-shadow:0 0 0 0 rgba(251,113,133,.5)}50%{box-shadow:0 0 0 12px rgba(251,113,133,0)}}
+@keyframes gradMove{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
+@keyframes notifSlide{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes notifLeave{from{transform:translateX(0);opacity:1}to{transform:translateX(120%);opacity:0}}
+@keyframes orbFloat{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(30px,-20px) scale(1.05)}66%{transform:translate(-20px,30px) scale(.95)}}
+
+/* ────────────────────────────────────────────────
+   FLOATING MEDICAL BACKGROUND ICONS
+──────────────────────────────────────────────── */
+@keyframes floatA{0%,100%{transform:translateY(0) rotate(0deg)}50%{transform:translateY(-28px) rotate(6deg)}}
+@keyframes floatB{0%,100%{transform:translateY(0) rotate(0deg)}50%{transform:translateY(-18px) rotate(-5deg)}}
+@keyframes floatC{0%,100%{transform:translateY(0) rotate(-8deg)}50%{transform:translateY(-22px) rotate(4deg)}}
+@keyframes floatD{0%,100%{transform:translateY(0) rotate(5deg)}50%{transform:translateY(-14px) rotate(-3deg)}}
+@keyframes floatE{0%,100%{transform:translateY(0) rotate(0deg)}50%{transform:translateY(-32px) rotate(8deg)}}
+@keyframes floatF{0%,100%{transform:translateY(0) rotate(12deg)}50%{transform:translateY(-20px) rotate(-4deg)}}
+@keyframes driftAcross{0%{transform:translateX(-120px) translateY(0) rotate(-10deg);opacity:0}10%{opacity:1}90%{opacity:1}100%{transform:translateX(calc(100vw + 120px)) translateY(-60px) rotate(10deg);opacity:0}}
+@keyframes pulseGlow{0%,100%{filter:drop-shadow(0 0 4px currentColor)}50%{filter:drop-shadow(0 0 12px currentColor)}}
+@keyframes xrayFlicker{0%,100%{opacity:var(--med-opacity)}30%{opacity:calc(var(--med-opacity)*1.5)}60%{opacity:calc(var(--med-opacity)*0.7)}}
+
+.med-bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.med-icon{position:absolute;opacity:var(--med-opacity);transition:opacity .5s}
+.med-icon svg{display:block}
+
+/* ════════════ ANIMATED DOCTOR MASCOT ════════════ */
+@keyframes doctorFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+@keyframes eyeBlink{0%,90%,100%{transform:scaleY(1)}92%,98%{transform:scaleY(0.05)}}
+/* pupil movement is handled via JS based on cursor position */
+@keyframes pupilLook{0%,100%{transform:translate(0,0)}25%{transform:translate(2px,-1px)}50%{transform:translate(-2px,1px)}75%{transform:translate(1px,2px)}}
+@keyframes tailWag{0%,100%{transform:rotate(0deg)}25%{transform:rotate(3deg)}75%{transform:rotate(-3deg)}}
+@keyframes penWrite{0%,100%{transform:rotate(-20deg) translate(0,0)}50%{transform:rotate(-20deg) translate(3px,2px)}}
+@keyframes penWriteActive{0%{transform:rotate(-20deg) translate(0,0)}25%{transform:rotate(-18deg) translate(4px,1px)}50%{transform:rotate(-22deg) translate(2px,3px)}75%{transform:rotate(-19deg) translate(5px,2px)}100%{transform:rotate(-20deg) translate(0,0)}}
+@keyframes diaryPageFlip{0%,100%{transform:scaleX(1)}50%{transform:scaleX(0.92)}}
+@keyframes stethoscopeSwing{0%,100%{transform:rotate(0deg)}50%{transform:rotate(3deg)}}
+@keyframes thermometerGlow{0%,100%{filter:drop-shadow(0 0 3px #ff6b6b)}50%{filter:drop-shadow(0 0 8px #ff4444)}}
+@keyframes heartbeat{0%,100%{transform:scale(1)}14%{transform:scale(1.12)}28%{transform:scale(1)}42%{transform:scale(1.08)}56%,100%{transform:scale(1)}}
+@keyframes winkClose{0%,80%,100%{transform:scaleY(1)}85%,95%{transform:scaleY(0.05)}}
+@keyframes sparkle{0%,100%{opacity:0;transform:scale(0) rotate(0deg)}20%,80%{opacity:1;transform:scale(1) rotate(180deg)}}
+
+.doctor-mascot{
+  position:absolute;top:70px;left:8px;z-index:50; /* moved down and to left */
+  width:70px;height:110px;
+  animation:doctorFloat 4s ease-in-out infinite;
+  cursor:pointer;filter:drop-shadow(0 8px 24px rgba(124,106,255,0.3));
+  transition:filter .3s;
+}
+.doctor-mascot:hover{filter:drop-shadow(0 12px 32px rgba(124,106,255,0.5))}
+.doctor-mascot svg{width:100%;height:100%}
+
+/* When writing: tilt forward and speed up diary/pen */
+.doctor-mascot.writing{animation:none;transform:translateY(-4px) rotate(-3deg)}
+.doctor-mascot.writing svg{transform-origin:65px 120px}
+.doctor-mascot.writing .pen-group{animation:penWriteActive .36s ease-in-out infinite}
+.doctor-mascot.writing .diary-group{animation:diaryPageFlip 1.6s ease-in-out infinite}
+
+/* Eye layers */
+.eye-left,.eye-right{transform-origin:center center;animation:eyeBlink 4s ease-in-out infinite}
+.pupil-left,.pupil-right{animation:none}
+.pupil-right{animation:none}
+.stethoscope-group{animation:stethoscopeSwing 3s ease-in-out infinite;transform-origin:70px 90px}
+.thermometer-group{animation:thermometerGlow 2s ease-in-out infinite}
+.doctor-heart{animation:heartbeat 1.4s ease infinite}
+.pen-group{animation:penWrite 2s ease-in-out infinite;transform-origin:85px 145px}
+.pen-group.writing{animation:penWriteActive .4s ease-in-out infinite;transform-origin:85px 145px}
+.diary-group{animation:diaryPageFlip 3s ease-in-out infinite;transform-origin:55px 150px}
+
+/* Sparkles around mascot when writing */
+.mascot-sparkles{position:absolute;inset:0;pointer-events:none}
+.sparkle{position:absolute;width:8px;height:8px;opacity:0}
+.sparkle svg{width:100%;height:100%}
+.sparkle.s1{top:20%;right:5%;animation:sparkle 1.2s ease-in-out infinite}
+.sparkle.s2{top:35%;left:5%;animation:sparkle 1.5s ease-in-out infinite .3s}
+.sparkle.s3{top:10%;right:20%;animation:sparkle 1.8s ease-in-out infinite .6s}
+.sparkle.s4{bottom:30%;right:0%;animation:sparkle 1.3s ease-in-out infinite .9s}
+
+/* Mascot tooltip */
+.mascot-bubble{
+  position:absolute;bottom:185px;right:0;
+  background:var(--bg3);border:1px solid var(--line2);
+  border-radius:14px 14px 4px 14px;
+  padding:8px 12px;font-size:.72rem;font-weight:600;color:var(--tx0);
+  white-space:nowrap;box-shadow:var(--shadow2);
+  opacity:0;transform:translateY(6px);transition:all .3s ease;
+  pointer-events:none;max-width:180px;white-space:normal;text-align:center;line-height:1.4;
+}
+.doctor-mascot:hover .mascot-bubble{opacity:1;transform:translateY(0)}
+
+/* ════════════ BACKGROUND ════════════ */
+.bg-canvas{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.bg-orb{position:absolute;border-radius:50%;filter:blur(80px);animation:orbFloat 12s ease-in-out infinite}
+.bg-orb-1{width:600px;height:600px;background:radial-gradient(circle,rgba(124,106,255,.12),transparent 70%);top:-200px;left:-100px}
+.bg-orb-2{width:500px;height:500px;background:radial-gradient(circle,rgba(34,211,238,.08),transparent 70%);top:40%;right:-150px;animation-delay:-4s}
+.bg-orb-3{width:400px;height:400px;background:radial-gradient(circle,rgba(251,113,133,.07),transparent 70%);bottom:-100px;left:30%;animation-delay:-8s}
+[data-theme="light"] .bg-orb-1{background:radial-gradient(circle,rgba(99,85,232,.06),transparent 70%)}
+[data-theme="light"] .bg-orb-2{background:radial-gradient(circle,rgba(8,145,178,.04),transparent 70%)}
+[data-theme="light"] .bg-orb-3{background:radial-gradient(circle,rgba(225,29,72,.03),transparent 70%)}
+
+.bg-grid{
+  position:fixed;inset:0;z-index:0;pointer-events:none;
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:48px 48px;
+  mask-image:radial-gradient(ellipse 80% 80% at 50% 50%,black 30%,transparent 100%);
+}
+
+/* ════════════ LAYOUT ════════════ */
+.app{display:flex;flex-direction:column;min-height:100vh;position:relative;z-index:1}
+.body-layout{display:flex;flex:1;position:relative}
+
+/* ════════════ HEADER ════════════ */
+.header{
+  position:sticky;top:0;z-index:200;
+  background:rgba(8,8,16,.85);
+  backdrop-filter:blur(24px) saturate(180%);
+  border-bottom:1px solid var(--line);transition:all .3s;
+}
+[data-theme="light"] .header{background:rgba(245,245,251,.88)}
+.header-inner{max-width:1200px;margin:0 auto;padding:0 28px;height:60px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.logo{display:flex;align-items:center;gap:12px;cursor:default;user-select:none}
+.logo-icon-wrap{position:relative;width:38px;height:38px;flex-shrink:0}
+.logo-icon{width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,var(--a1),var(--cyan));display:flex;align-items:center;justify-content:center;font-size:18px;position:relative;z-index:1;box-shadow:0 4px 16px var(--a1g);transition:transform .2s}
+.logo-icon:hover{transform:scale(1.08) rotate(-4deg)}
+.logo-pulse{position:absolute;inset:-3px;border-radius:14px;background:linear-gradient(135deg,var(--a1),var(--cyan));opacity:.3;animation:blobPulse 3s ease infinite;z-index:0}
+.logo-text{font-family:'Bricolage Grotesque',sans-serif;font-size:1.25rem;font-weight:700;background:linear-gradient(135deg,var(--tx0),var(--a2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.logo-badge{font-size:.6rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;background:linear-gradient(135deg,var(--a1),var(--cyan));color:#fff;padding:2px 7px;border-radius:99px;box-shadow:0 2px 8px var(--a1g)}
+.header-center{flex:1;display:flex;justify-content:center;padding:0 40px}
+.status-pill{display:inline-flex;align-items:center;gap:6px;padding:5px 14px;border-radius:99px;background:var(--bg3);border:1px solid var(--line2);font-size:.72rem;font-weight:600;color:var(--tx2)}
+.status-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2s ease infinite}
+.header-right{display:flex;align-items:center;gap:8px}
+.ctrl-group{display:flex;background:var(--bg3);border:1px solid var(--line);border-radius:12px;padding:3px;gap:2px}
+.ctrl-btn{border:none;background:transparent;width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer;color:var(--tx2);transition:all .18s;position:relative;overflow:hidden}
+.ctrl-btn::before{content:'';position:absolute;inset:0;background:var(--a1g);border-radius:9px;opacity:0;transition:opacity .18s}
+.ctrl-btn:hover::before,.ctrl-btn.active::before{opacity:1}
+.ctrl-btn.active{color:var(--a2);box-shadow:0 2px 8px var(--a1g)}
+.ctrl-btn:hover{color:var(--tx0)}
+.ctrl-tooltip{position:absolute;bottom:-28px;left:50%;transform:translateX(-50%);background:var(--bg4);border:1px solid var(--line2);color:var(--tx1);font-size:.65rem;font-weight:600;padding:3px 8px;border-radius:6px;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .15s;z-index:50}
+.ctrl-btn:hover .ctrl-tooltip{opacity:1}
+.lang-toggle{display:flex;background:var(--bg3);border:1px solid var(--line);border-radius:12px;padding:3px;gap:2px}
+.lang-btn{border:none;background:transparent;padding:5px 12px;border-radius:9px;font-size:.73rem;font-weight:700;cursor:pointer;color:var(--tx2);font-family:'Cabinet Grotesk',sans-serif;transition:all .18s}
+.lang-btn.active{background:linear-gradient(135deg,var(--a1),var(--a2));color:#fff;box-shadow:0 2px 10px var(--a1g)}
+.lang-btn:hover:not(.active){color:var(--tx0)}
+
+/* Toast */
+.toast-container{position:fixed;top:80px;right:24px;z-index:999;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast{background:var(--bg3);border:1px solid var(--line2);border-radius:14px;padding:12px 16px;display:flex;align-items:center;gap:10px;font-size:.8rem;font-weight:600;color:var(--tx0);box-shadow:var(--shadow2);pointer-events:all;animation:notifSlide .4s cubic-bezier(.16,1,.3,1) both;min-width:220px}
+.toast-icon{font-size:16px;flex-shrink:0}
+
+/* Disclaimer */
+.disclaimer-strip{padding:7px 28px;display:flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(90deg,transparent,var(--a1gs),transparent);border-bottom:1px solid var(--line);font-size:.7rem;font-weight:600;color:var(--tx2)}
+.disc-badge{padding:2px 8px;border-radius:99px;background:var(--a1g);color:var(--a2);font-size:.62rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;border:1px solid rgba(124,106,255,.2);flex-shrink:0}
+
+/* Sidebar nav */
+.sidebar-nav{width:72px;flex-shrink:0;background:var(--bg1);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding:16px 0;gap:4px;position:sticky;top:60px;height:calc(100vh - 60px);transition:background .3s}
+.snav-btn{width:48px;height:48px;border-radius:14px;border:none;background:transparent;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--tx2);transition:all .2s;position:relative}
+.snav-btn::before{content:'';position:absolute;inset:0;border-radius:14px;background:var(--a1g);opacity:0;transition:opacity .2s}
+.snav-btn:hover::before,.snav-btn.active::before{opacity:1}
+.snav-btn:hover{color:var(--tx0)}
+.snav-btn.active{color:var(--a2)}
+.snav-btn.active::after{content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:3px;height:24px;background:var(--a1);border-radius:0 3px 3px 0}
+.snav-icon{font-size:18px;line-height:1;position:relative;z-index:1}
+.snav-label{font-size:.52rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;position:relative;z-index:1;line-height:1}
+.snav-tooltip{position:absolute;left:60px;top:50%;transform:translateY(-50%);background:var(--bg4);border:1px solid var(--line2);color:var(--tx0);font-size:.72rem;font-weight:600;padding:5px 10px;border-radius:8px;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .15s;z-index:300;box-shadow:var(--shadow1)}
+.snav-btn:hover .snav-tooltip{opacity:1}
+.snav-divider{width:32px;height:1px;background:var(--line);margin:8px 0}
+
+/* Content */
+.content-area{flex:1;min-width:0;display:flex;flex-direction:column}
+.tab-panel{display:none}
+.tab-panel.active{display:flex;flex-direction:column;flex:1;animation:fadeUp .4s cubic-bezier(.16,1,.3,1) both}
+
+/* ════════════ CHAT ════════════ */
+.chat-root{display:flex;flex:1;height:calc(100vh - 88px);overflow:hidden}
+.chat-main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
+.chat-topbar{padding:12px 24px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;background:var(--bg1);backdrop-filter:blur(8px);transition:background .3s}
+.chat-model-select{display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:10px;background:var(--bg3);border:1px solid var(--line);cursor:pointer;transition:all .18s}
+.chat-model-select:hover{border-color:var(--a1);background:var(--bg4)}
+.chat-model-dot{width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,var(--a1),var(--cyan));box-shadow:0 0 8px var(--a1g)}
+.chat-model-name{font-size:.75rem;font-weight:700;color:var(--tx1)}
+.chat-topbar-actions{display:flex;gap:6px}
+.icon-btn{width:34px;height:34px;border-radius:10px;border:1px solid var(--line);background:transparent;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:15px;color:var(--tx2);transition:all .18s;position:relative}
+.icon-btn:hover{border-color:var(--a1);color:var(--a2);background:var(--a1g)}
+.icon-btn:disabled{opacity:.45;cursor:not-allowed}
+.icon-btn .tip{position:absolute;bottom:-30px;left:50%;transform:translateX(-50%);background:var(--bg4);border:1px solid var(--line2);padding:3px 8px;border-radius:6px;font-size:.63rem;font-weight:600;white-space:nowrap;color:var(--tx1);opacity:0;pointer-events:none;transition:opacity .15s;z-index:50}
+.icon-btn:hover .tip{opacity:1}
+
+/* Messages */
+.chat-msgs{flex:1;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:16px;scroll-behavior:smooth}
+.chat-welcome{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 24px;text-align:center;gap:20px}
+.welcome-orb{width:80px;height:80px;border-radius:24px;background:linear-gradient(135deg,var(--a1),var(--cyan));display:flex;align-items:center;justify-content:center;font-size:36px;box-shadow:var(--glow-a);animation:blobPulse 4s ease infinite}
+.welcome-title{font-family:'Bricolage Grotesque',sans-serif;font-size:1.6rem;font-weight:700;background:linear-gradient(135deg,var(--tx0),var(--a2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.welcome-sub{font-size:.88rem;color:var(--tx2);max-width:360px;line-height:1.7}
+.welcome-chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:4px}
+.welcome-chip{padding:8px 16px;border-radius:99px;background:var(--bg3);border:1px solid var(--line2);font-size:.78rem;font-weight:600;color:var(--tx1);cursor:pointer;transition:all .2s;position:relative;overflow:hidden}
+.welcome-chip::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,var(--a1g),var(--cyan-g));opacity:0;transition:opacity .2s}
+.welcome-chip:hover{border-color:var(--a1);color:var(--a2);transform:translateY(-2px);box-shadow:0 4px 16px var(--a1g)}
+.welcome-chip:hover::before{opacity:1}
+.msg-row{display:flex;gap:12px;animation:fadeUp .3s cubic-bezier(.16,1,.3,1) both}
+.msg-row.user{flex-direction:row-reverse}
+.msg-avatar{width:34px;height:34px;border-radius:11px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800}
+.msg-row.user .msg-avatar{background:linear-gradient(135deg,var(--a1),var(--a2));color:#fff;font-size:11px}
+.msg-row.ai .msg-avatar{background:linear-gradient(135deg,var(--bg3),var(--bg4));border:1px solid var(--line2);font-size:16px}
+.msg-content{display:flex;flex-direction:column;gap:4px;max-width:75%}
+.msg-row.user .msg-content{align-items:flex-end}
+.msg-meta{font-size:.65rem;color:var(--tx3);font-weight:500}
+.msg-bubble{padding:12px 16px;border-radius:18px;font-size:.875rem;line-height:1.7;position:relative}
+.msg-row.user .msg-bubble{background:linear-gradient(135deg,var(--a1),var(--a2));color:#fff;border-bottom-right-radius:5px;box-shadow:0 4px 20px var(--a1g)}
+.msg-row.ai .msg-bubble{background:var(--ai-bg-trans);color:var(--tx0);border:1px solid var(--ai-border);border-bottom-left-radius:5px;box-shadow:var(--shadow1);transition:background .3s,border-color .3s}
+.msg-row.emergency .msg-bubble{background:var(--rose-g);border-color:rgba(251,113,133,.4);animation:emergencyGlow 2s ease infinite}
+.msg-actions{display:flex;gap:4px;margin-top:4px;opacity:0;transition:opacity .2s}
+.msg-content:hover .msg-actions{opacity:1}
+.msg-action-btn{width:26px;height:26px;border-radius:7px;border:1px solid var(--line);background:var(--bg3);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:11px;color:var(--tx2);transition:all .15s}
+.msg-action-btn:hover{border-color:var(--a1);color:var(--a2);background:var(--a1g)}
+.md{font-size:.875rem;line-height:1.75}
+.md p{margin:6px 0}.md p:first-child{margin-top:0}.md p:last-child{margin-bottom:0}
+.md h1,.md h2,.md h3{font-family:'Bricolage Grotesque',sans-serif;color:var(--tx0);margin:14px 0 6px;line-height:1.3;font-weight:700}
+.md h1{font-size:1.05rem}.md h2{font-size:.98rem}.md h3{font-size:.9rem;color:var(--a2)}
+.md ul,.md ol{padding-left:20px;margin:7px 0}.md li{margin:3px 0}
+.md strong{font-weight:700;color:var(--tx0)}.md em{font-style:italic;color:var(--tx1)}
+.md code{background:var(--bg4);border:1px solid var(--line2);border-radius:6px;padding:1px 7px;font-size:.8rem;font-family:monospace;color:var(--cyan)}
+.md hr{border:none;border-top:1px solid var(--line);margin:12px 0}
+.md blockquote{border-left:3px solid var(--a1);padding-left:12px;color:var(--tx2);margin:10px 0;font-style:italic}
+.md *:first-child{margin-top:0}.md *:last-child{margin-bottom:0}
+.typing-row{display:flex;align-items:center;gap:5px;padding:2px 4px}
+.t-dot{width:7px;height:7px;border-radius:50%;background:var(--tx3);animation:pulse 1.3s ease infinite}
+.t-dot:nth-child(2){animation-delay:.18s}.t-dot:nth-child(3){animation-delay:.36s}
+
+/* Input */
+.chat-input-zone{border-top:1px solid var(--line);padding:16px 24px 20px;background:var(--bg1);transition:background .3s}
+.input-box{background:var(--bg2);border:1.5px solid var(--line);border-radius:18px;padding:4px 6px 4px 16px;display:flex;align-items:flex-end;gap:8px;transition:all .2s;box-shadow:var(--shadow1)}
+.input-box:focus-within{border-color:var(--a1);box-shadow:0 0 0 3px var(--a1g),var(--shadow1)}
+.chat-ta{flex:1;background:transparent;border:none;outline:none;color:var(--tx0);font-family:'Cabinet Grotesk',sans-serif;font-size:.88rem;resize:none;padding:10px 0;min-height:44px;max-height:140px;line-height:1.55}
+.chat-ta::placeholder{color:var(--tx3)}
+.input-actions{display:flex;align-items:center;gap:4px;padding:4px}
+.send-btn{width:40px;height:40px;border-radius:12px;border:none;background:linear-gradient(135deg,var(--a1),var(--a2));color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;transition:all .2s;box-shadow:0 4px 16px var(--a1g);position:relative;overflow:hidden}
+.send-btn::after{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.25),transparent);opacity:0;transition:opacity .2s}
+.send-btn:hover:not(:disabled){transform:scale(1.08) translateY(-2px);box-shadow:0 8px 28px var(--a1g)}
+.send-btn:hover::after{opacity:1}
+.send-btn:active:not(:disabled){transform:scale(.95)}
+.send-btn:disabled{background:var(--bg4);box-shadow:none;cursor:not-allowed;color:var(--tx3)}
+.input-footer{display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding:0 4px}
+.input-hint{font-size:.67rem;color:var(--tx3)}
+.char-count{font-size:.67rem;color:var(--tx3)}
+.char-count.warn{color:var(--amber)}.char-count.danger{color:var(--rose)}
+.voice-interim{font-size:.72rem;color:var(--a2);margin-top:8px;line-height:1.4}
+
+/* Right panel */
+.chat-right{width:280px;flex-shrink:0;border-left:1px solid var(--line);background:var(--bg1);display:flex;flex-direction:column;overflow-y:auto;transition:background .3s}
+@media(max-width:1100px){.chat-right{display:none}}
+.panel-section{padding:16px;border-bottom:1px solid var(--line)}
+.panel-heading{font-size:.65rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--tx3);margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.panel-heading::after{content:'';flex:1;height:1px;background:var(--line)}
+.quick-q{padding:8px 11px;border-radius:10px;background:var(--bg2);border:1px solid var(--line);font-size:.75rem;color:var(--tx1);cursor:pointer;margin-bottom:6px;transition:all .18s;display:flex;align-items:center;gap:7px;font-family:'Cabinet Grotesk',sans-serif;font-weight:500;text-align:left;width:100%}
+.quick-q:last-child{margin-bottom:0}
+.quick-q::before{content:'›';color:var(--a2);font-size:14px;font-weight:700;flex-shrink:0;transition:transform .18s}
+.quick-q:hover{background:var(--bg4);border-color:var(--a1);color:var(--a2)}
+.quick-q:hover::before{transform:translateX(2px)}
+.conv-stat{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px dashed var(--line);font-size:.75rem}
+.conv-stat:last-child{border-bottom:none}
+.conv-stat-label{color:var(--tx2);font-weight:500}.conv-stat-val{color:var(--tx0);font-weight:700}
+.emergency-panel{background:linear-gradient(135deg,var(--rose-g),transparent);border:1px solid rgba(251,113,133,.2);border-radius:14px;padding:14px;margin:16px}
+.emg-title{font-size:.7rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--rose);margin-bottom:8px;display:flex;align-items:center;gap:5px}
+.emg-number{display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(251,113,133,.1)}
+.emg-number:last-child{border-bottom:none}
+.emg-label{font-size:.72rem;color:var(--tx2);font-weight:500}.emg-val{font-size:.88rem;font-weight:800;color:var(--rose)}
+
+/* Tools layout */
+.tool-layout{max-width:900px;margin:0 auto;padding:32px 28px;width:100%}
+.tool-header{margin-bottom:28px}
+.tool-title{font-family:'Bricolage Grotesque',sans-serif;font-size:1.8rem;font-weight:700;margin-bottom:6px;background:linear-gradient(135deg,var(--tx0) 40%,var(--a2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.tool-sub{font-size:.875rem;color:var(--tx2)}
+.search-box{background:var(--card-bg);border:1.5px solid var(--card-border);border-radius:20px;padding:20px;box-shadow:var(--shadow1);margin-bottom:24px;transition:all .3s}
+.search-box:focus-within{border-color:var(--a1);box-shadow:0 0 0 3px var(--a1g),var(--shadow1)}
+.search-row{display:flex;gap:10px;align-items:center}
+.search-in{flex:1;background:var(--bg2);border:1.5px solid var(--line);border-radius:12px;padding:11px 16px;font-family:'Cabinet Grotesk',sans-serif;font-size:.875rem;outline:none;color:var(--tx0);transition:all .2s}
+.search-in:focus{border-color:var(--a1);background:var(--bg3);box-shadow:0 0 0 3px var(--a1g)}
+.search-in::placeholder{color:var(--tx3)}
+.action-btn{padding:11px 24px;border:none;border-radius:12px;font-family:'Cabinet Grotesk',sans-serif;font-size:.85rem;font-weight:700;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:8px;position:relative;overflow:hidden;transition:all .22s;background:linear-gradient(135deg,var(--a1) 0%,var(--a2) 50%,var(--cyan) 100%);background-size:200% 100%;color:#fff;box-shadow:0 4px 20px var(--a1g)}
+.action-btn::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.25),transparent 60%);opacity:0;transition:opacity .2s}
+.action-btn:hover:not(:disabled){transform:translateY(-3px);box-shadow:0 10px 36px var(--a1g);background-position:100% 0}
+.action-btn:hover::before{opacity:1}
+.action-btn:active:not(:disabled){transform:translateY(0) scale(.98)}
+.action-btn:disabled{background:var(--bg4);box-shadow:none;cursor:not-allowed;color:var(--tx3)}
+.action-btn .btn-spinner{width:16px;height:16px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite}
+.chip-strip{display:flex;flex-wrap:wrap;gap:7px;margin-top:14px}
+.chip-label{font-size:.68rem;color:var(--tx3);font-weight:600;letter-spacing:.05em;text-transform:uppercase;align-self:center}
+.chip{padding:5px 13px;border-radius:99px;font-size:.73rem;font-weight:700;background:var(--bg3);border:1px solid var(--line);color:var(--tx2);cursor:pointer;font-family:'Cabinet Grotesk',sans-serif;transition:all .18s}
+.chip:hover{background:var(--a1g);border-color:var(--a1);color:var(--a2);transform:translateY(-1px);box-shadow:0 3px 12px var(--a1g)}
+.result-card{background:var(--card-bg);border:1px solid var(--card-border);border-radius:20px;padding:24px;box-shadow:var(--shadow1);animation:scaleIn .4s cubic-bezier(.16,1,.3,1) both;transition:border-color .2s,box-shadow .2s,background .3s}
+.result-card:hover{border-color:var(--card-hover-border);box-shadow:var(--shadow2),0 0 0 1px var(--card-hover-border)}
+.rcard-head{display:flex;align-items:flex-start;gap:14px;margin-bottom:20px}
+.rcard-icon{width:46px;height:46px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
+.icon-v{background:linear-gradient(135deg,var(--a1g),var(--cyan-g));border:1px solid var(--a1g)}
+.icon-g{background:linear-gradient(135deg,var(--green-g),transparent);border:1px solid rgba(52,211,153,.2)}
+.rcard-title{font-family:'Bricolage Grotesque',sans-serif;font-size:1.1rem;font-weight:700;color:var(--tx0);margin-bottom:3px;text-transform:capitalize}
+.rcard-sub{font-size:.72rem;color:var(--tx3);font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.info-seg{margin-bottom:18px}.info-seg:last-child{margin-bottom:0}
+.seg-label{font-size:.65rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--tx3);margin-bottom:8px;display:flex;align-items:center;gap:7px}
+.seg-label-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.dot-v{background:var(--a1)}.dot-g{background:var(--green)}.dot-r{background:var(--rose)}.dot-a{background:var(--amber)}
+.info-list{list-style:none}
+.info-list li{font-size:.82rem;color:var(--tx1);padding:6px 0 6px 16px;position:relative;border-bottom:1px solid var(--line);line-height:1.5}
+.info-list li:last-child{border-bottom:none}
+.info-list li::before{content:'›';position:absolute;left:0;color:var(--a1);font-weight:900;font-size:1rem;line-height:1.4}
+.res-list{display:flex;flex-direction:column;gap:14px}
+.res-card{background:var(--card-bg);border:1px solid var(--card-border);border-radius:16px;padding:20px;animation:scaleIn .4s cubic-bezier(.16,1,.3,1) both;transition:all .2s}
+.res-card:hover{border-color:var(--card-hover-border);transform:translateX(4px);box-shadow:var(--shadow2)}
+.res-card-title{font-size:.9rem;font-weight:700;color:var(--tx0);margin-bottom:10px;line-height:1.45}
+.res-meta{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:10px}
+.tag{font-size:.68rem;font-weight:700;padding:3px 10px;border-radius:99px;display:inline-flex;align-items:center;gap:4px}
+.tag-v{background:var(--a1g);color:var(--a2);border:1px solid rgba(124,106,255,.2)}
+.tag-s{background:var(--bg3);color:var(--tx2);border:1px solid var(--line)}
+.res-summary{font-size:.8rem;color:var(--tx2);line-height:1.65;margin-bottom:10px}
+.pubmed-btn{display:inline-flex;align-items:center;gap:6px;padding:5px 13px;border-radius:9px;background:var(--a1g);border:1px solid rgba(124,106,255,.25);color:var(--a2);font-size:.75rem;font-weight:700;text-decoration:none;transition:all .18s}
+.pubmed-btn:hover{background:var(--a1);color:#fff;border-color:var(--a1);transform:translateY(-1px);box-shadow:0 4px 14px var(--a1g)}
+.stats-wrap{overflow-x:auto;border-radius:14px;border:1px solid var(--line);margin-top:4px}
+.stats-table{width:100%;border-collapse:collapse;font-size:.82rem}
+.stats-table th{background:var(--bg2);padding:10px 16px;text-align:left;font-size:.65rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--tx3);border-bottom:1px solid var(--line2)}
+.stats-table td{padding:10px 16px;border-bottom:1px solid var(--line);color:var(--tx1);vertical-align:middle}
+.stats-table tr:last-child td{border-bottom:none}
+.stats-table tr:hover td{background:var(--bg2)}
+.country-tag{display:inline-block;padding:2px 9px;border-radius:99px;background:var(--cyan-g);color:var(--cyan);font-size:.7rem;font-weight:700;border:1px solid rgba(34,211,238,.2)}
+.loading-box{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:60px;color:var(--tx2);font-size:.85rem;font-weight:500}
+.load-orb{width:48px;height:48px;border-radius:14px;background:linear-gradient(135deg,var(--a1g),var(--cyan-g));display:flex;align-items:center;justify-content:center;animation:blobPulse 1.5s ease infinite}
+.spinner-lg{width:24px;height:24px;border:2.5px solid var(--bg4);border-top-color:var(--a1);border-radius:50%;animation:spin .7s linear infinite}
+.error-box{background:var(--rose-g);border:1px solid rgba(251,113,133,.3);border-radius:14px;padding:16px 20px;color:var(--rose);font-size:.85rem;display:flex;align-items:flex-start;gap:10px;animation:fadeUp .3s ease}
+.empty-box{text-align:center;padding:60px 24px;color:var(--tx3)}
+.empty-icon{font-size:3rem;margin-bottom:12px;display:block}
+.result-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding:10px 14px;background:var(--bg2);border-radius:12px;border:1px solid var(--line)}
+.result-bar-count{font-size:.78rem;font-weight:700;color:var(--tx0)}
+.result-bar-count span{color:var(--a2)}
+.result-bar-note{font-size:.7rem;color:var(--tx3)}
+.footer{border-top:1px solid var(--line);padding:14px 28px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;background:var(--bg1);transition:background .3s}
+.footer-left{font-size:.7rem;color:var(--tx3);display:flex;align-items:center;gap:8px}
+.footer-dot{display:inline-block;width:3px;height:3px;border-radius:50%;background:var(--tx3)}
+.footer-powered{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.footer-tag{padding:2px 8px;border-radius:6px;background:var(--bg3);border:1px solid var(--line);font-size:.63rem;font-weight:600;color:var(--tx2)}
+body.urdu .info-list li::before{right:0;left:auto}
+body.urdu .info-list li{padding-right:16px;padding-left:0}
+body.urdu .quick-q::before{right:auto;left:0}
+body.urdu .res-card:hover{transform:translateX(-4px)}
+@media(max-width:768px){.sidebar-nav{display:none}.tool-layout{padding:20px 16px}.header-inner{padding:0 16px}.header-center{display:none}.search-row{flex-direction:column}.action-btn{width:100%;justify-content:center}.doctor-mascot{width:50px;height:80px;top:40px;left:4px}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useRef, useEffect, useCallback, useMemo } = React;
+
+/* ── i18n ── */
+const T = {
+  en:{
+    logoSub:"AI",disc:"Educational purposes only — not a substitute for professional medical advice",discBadge:"Disclaimer",
+    tabs:[{k:"chat",i:"💬",l:"Chat"},{k:"drug",i:"💊",l:"Drug Info"},{k:"research",i:"🔬",l:"Research"},{k:"stats",i:"🌍",l:"WHO Stats"}],
+    chat:{
+      model:"Groq",status:"Online · Ready",
+      welcomeTitle:"How can I help you today?",
+      welcomeSub:"Get clear, evidence-based medical information. Ask about symptoms, medications, conditions, or anything health-related.",
+      chips:["What are early signs of diabetes?","How to lower blood pressure?","What is ibuprofen used for?","Symptoms of vitamin D deficiency","How does the immune system work?","What causes high cholesterol?"],
+      qs:"Quick Questions",
+      qsList:["Early signs of diabetes?","Lower blood pressure naturally?","Causes of chronic back pain?","How does ibuprofen work?","Signs of vitamin deficiency?","Cold vs flu difference?"],
+      statsLabel:"Session Stats",msgs:"Messages",words:"Words",
+      emergency:"Emergency",ph:"Ask a medical question… (Enter to send, Shift+Enter for new line)",
+      hint:"Enter to send · Shift+Enter for newline",copy:"Copy",copied:"Copied!",clear:"Clear chat",cleared:"Chat cleared",you:"You",
+      mascotIdle:"Hi! I'm Dr. Amna 🩺\nAsk me anything!",mascotWriting:"Let me check that for you… 📝",
+      voiceMic:"Voice input",voiceStop:"Stop listening",voiceLiveStart:"Start live voice",voiceLiveStop:"Stop live voice",
+      voiceReplyOn:"Voice replies on",voiceReplyOff:"Voice replies off",voiceNotSupported:"Voice features need Chrome/Edge on HTTPS or localhost.",
+      voiceCaptured:"Voice captured",voiceListening:"Listening…",voiceInterim:"Heard",voiceCommandDone:"Voice command done",
+      voiceCommandsHint:"Commands: send..., clear chat, start live mode, stop live mode.",voiceSendMissing:"Nothing to send yet.",
+      voiceLiveOn:"Live voice on",voiceLiveOff:"Live voice off",
+    },
+    drug:{title:"Drug Information",sub:"Search FDA drug labels for indications, warnings & side effects.",ph:"Drug name (e.g. aspirin, metformin, ibuprofen)…",btn:"Search Drug",indications:"Indications & Usage",warnings:"Warnings & Precautions",side:"Side Effects",noData:"No FDA data found. Try the generic or brand name.",disc:"Never change or stop medication without consulting your doctor or pharmacist."},
+    research:{title:"Medical Research",sub:"Search 35M+ peer-reviewed articles on PubMed / NCBI.",ph:"Research topic (e.g. type 2 diabetes, hypertension treatment)…",btn:"Search PubMed",found:"total results",showing:"showing",viewBtn:"Read on PubMed →",noResults:"No results found. Try broader keywords.",chips:["diabetes","hypertension","COVID-19","cancer","mental health","cardiovascular"]},
+    stats:{title:"WHO Global Health Data",sub:"Live statistics from WHO Global Health Observatory API.",ph:"Health topic (e.g. malaria, hiv, tuberculosis, diabetes)…",btn:"Fetch WHO Data",country:"Country",year:"Year",value:"Value",dim:"Dimension",noData:"No data found. Try: malaria, hiv, tuberculosis, diabetes, obesity",chips:["malaria","hiv","tuberculosis","diabetes","obesity","hypertension","cancer","cholera"]},
+    loading:"Loading…",error:"Connection failed. Is the backend running?",backendNote:"Requires FastAPI backend at",
+  },
+  ur:{
+    logoSub:"اے آئی",disc:"صرف تعلیمی مقاصد — پیشہ ورانہ طبی مشورے کا متبادل نہیں",discBadge:"اہم نوٹ",
+    tabs:[{k:"chat",i:"💬",l:"چیٹ"},{k:"drug",i:"💊",l:"دوائی"},{k:"research",i:"🔬",l:"تحقیق"},{k:"stats",i:"🌍",l:"ڈبلیو ایچ او"}],
+    chat:{
+      model:"Groq",status:"آن لائن · تیار",
+      welcomeTitle:"آج میں آپ کی کیا مدد کروں؟",
+      welcomeSub:"واضح اور قابل بھروسہ طبی معلومات حاصل کریں۔",
+      chips:["ذیابیطس کی ابتدائی علامات","بلڈ پریشر کم کرنے کا طریقہ","آئبوپروفین کا استعمال","وٹامن ڈی کی کمی","مدافعتی نظام کیسے کام کرتا ہے؟","کولیسٹرول کیوں بڑھتا ہے؟"],
+      qs:"فوری سوالات",
+      qsList:["ذیابیطس کی ابتدائی علامات؟","بلڈ پریشر قدرتی طور پر؟","کمر درد کی وجوہات؟","آئبوپروفین کیسے کام کرتی ہے؟","وٹامن کی کمی کی علامات؟","نزلہ اور فلو میں فرق؟"],
+      statsLabel:"سیشن اعداد",msgs:"پیغامات",words:"الفاظ",
+      emergency:"ہنگامی",ph:"طبی سوال لکھیں…",
+      hint:"Enter — بھیجیں · Shift+Enter — نئی لائن",copy:"کاپی",copied:"ہو گیا!",clear:"چیٹ صاف",cleared:"چیٹ صاف ہوئی",you:"آپ",
+      mascotIdle:"!ہیلو! میں ڈاکٹر امنہ ہوں\n.کچھ بھی پوچھیں",mascotWriting:"…چیک کر رہا ہوں",
+      voiceMic:"Voice input",voiceStop:"Stop listening",voiceLiveStart:"Start live voice",voiceLiveStop:"Stop live voice",
+      voiceReplyOn:"Voice replies on",voiceReplyOff:"Voice replies off",voiceNotSupported:"Voice support browser me available nahin hai.",
+      voiceCaptured:"Voice captured",voiceListening:"Listening…",voiceInterim:"Heard",voiceCommandDone:"Voice command done",
+      voiceCommandsHint:"Commands: send..., clear chat, start live mode, stop live mode.",voiceSendMissing:"Abhi koi text send karne ke liye nahi hai.",
+      voiceLiveOn:"Live voice on",voiceLiveOff:"Live voice off",
+    },
+    drug:{title:"دوائی کی معلومات",sub:"FDA لیبل سے دوائی کے استعمال، خطرات اور ضمنی اثرات دیکھیں۔",ph:"دوائی کا نام…",btn:"تلاش کریں",indications:"استعمال اور ہدایات",warnings:"احتیاطات",side:"ضمنی اثرات",noData:"FDA ڈیٹا نہیں ملا۔",disc:"ڈاکٹر کے مشورے کے بغیر دوائی تبدیل نہ کریں۔"},
+    research:{title:"طبی تحقیق",sub:"PubMed پر تحقیقی مضامین تلاش کریں۔",ph:"موضوع…",btn:"تلاش کریں",found:"کل نتائج",showing:"دکھا رہے ہیں",viewBtn:"PubMed پر پڑھیں ←",noResults:"کوئی نتیجہ نہیں۔",chips:["diabetes","hypertension","COVID-19","cancer","mental health","cardiovascular"]},
+    stats:{title:"عالمی ادارہ صحت کا ڈیٹا",sub:"WHO سے براہ راست اعداد و شمار۔",ph:"موضوع…",btn:"ڈیٹا حاصل کریں",country:"ملک",year:"سال",value:"قدر",dim:"قسم",noData:"ڈیٹا نہیں ملا۔",chips:["malaria","hiv","tuberculosis","diabetes","obesity","hypertension","cancer","cholera"]},
+    loading:"لوڈ ہو رہا ہے…",error:"کنکشن ناکام۔",backendNote:"FastAPI بیک اینڈ ضروری ہے:",
+  }
+};
+
+const API = "";
+const apiFetch = async (url,opts) => { const r=await fetch(url,opts); if(!r.ok) throw new Error('Error'); return r.json(); };
+const apiChat = m => apiFetch(`${API}/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:m})});
+const apiDrug = n => apiFetch(`${API}/drug?name=${encodeURIComponent(n)}`);
+const apiResearch = q => apiFetch(`${API}/research?query=${encodeURIComponent(q)}`);
+const apiStats = t => apiFetch(`${API}/stats?topic=${encodeURIComponent(t)}`);
+
+function useToast() {
+  const [toasts,setToasts] = useState([]);
+  const add = useCallback((msg,icon='✅') => {
+    const id = Date.now();
+    setToasts(p=>[...p,{id,msg,icon}]);
+    setTimeout(()=>setToasts(p=>p.filter(t=>t.id!==id)),3000);
+  },[]);
+  return {toasts,add};
+}
+
+/* ════════════════════════════════════════════
+   FLOATING MEDICAL BACKGROUND (SVG icons)
+════════════════════════════════════════════ */
+function MedicalBackground() {
+  const icons = [
+    // X-Ray chest
+    {id:'xray1', x:'5%',  y:'8%',  size:90, rot:-12, anim:'floatA', dur:'18s', delay:'0s',
+     svg:<svg viewBox="0 0 80 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="2" y="2" width="76" height="96" rx="4" stroke="currentColor" strokeWidth="2.5"/>
+      <rect x="8" y="8" width="64" height="84" rx="2" stroke="currentColor" strokeWidth="1"/>
+      <text x="40" y="22" textAnchor="middle" fontSize="9" fill="currentColor" fontWeight="bold">X-RAY</text>
+      <ellipse cx="27" cy="55" rx="14" ry="22" stroke="currentColor" strokeWidth="1.5"/>
+      <ellipse cx="53" cy="55" rx="14" ry="22" stroke="currentColor" strokeWidth="1.5"/>
+      <line x1="40" y1="33" x2="40" y2="77" stroke="currentColor" strokeWidth="1.2"/>
+      <line x1="20" y1="42" x2="60" y2="42" stroke="currentColor" strokeWidth="0.8" strokeDasharray="2"/>
+      <ellipse cx="27" cy="50" rx="5" ry="8" stroke="currentColor" strokeWidth="1" opacity="0.6"/>
+      <ellipse cx="53" cy="50" rx="5" ry="8" stroke="currentColor" strokeWidth="1" opacity="0.6"/>
+      <path d="M30 60 Q40 70 50 60" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+    </svg>},
+    // Thermometer
+    {id:'therm1', x:'88%', y:'12%', size:40, rot:15, anim:'floatB', dur:'14s', delay:'-3s',
+     svg:<svg viewBox="0 0 24 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="8" y="2" width="8" height="55" rx="4" stroke="currentColor" strokeWidth="2"/>
+      <circle cx="12" cy="68" r="9" stroke="currentColor" strokeWidth="2"/>
+      <circle cx="12" cy="68" r="5" fill="currentColor" opacity="0.8"/>
+      <rect x="11" y="20" width="2" height="38" rx="1" fill="currentColor" opacity="0.8"/>
+      <line x1="16" y1="15" x2="20" y2="15" stroke="currentColor" strokeWidth="1.5"/>
+      <line x1="16" y1="25" x2="18" y2="25" stroke="currentColor" strokeWidth="1.5"/>
+      <line x1="16" y1="35" x2="20" y2="35" stroke="currentColor" strokeWidth="1.5"/>
+      <line x1="16" y1="45" x2="18" y2="45" stroke="currentColor" strokeWidth="1.5"/>
+    </svg>},
+    // Stethoscope
+    {id:'steth1', x:'78%', y:'40%', size:80, rot:20, anim:'floatC', dur:'20s', delay:'-6s',
+     svg:<svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="40" cy="70" r="8" stroke="currentColor" strokeWidth="2.5"/>
+      <circle cx="40" cy="70" r="3" fill="currentColor"/>
+      <path d="M40 62 Q40 40 60 35 Q70 32 70 20" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+      <path d="M40 62 Q40 40 20 35 Q10 32 10 20" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+      <circle cx="70" cy="16" r="6" stroke="currentColor" strokeWidth="2"/>
+      <circle cx="10" cy="16" r="6" stroke="currentColor" strokeWidth="2"/>
+      <circle cx="70" cy="16" r="2" fill="currentColor"/>
+      <circle cx="10" cy="16" r="2" fill="currentColor"/>
+    </svg>},
+    // Blood pressure monitor
+    {id:'bp1', x:'3%', y:'55%', size:85, rot:-8, anim:'floatD', dur:'16s', delay:'-9s',
+     svg:<svg viewBox="0 0 90 70" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="2" y="15" width="55" height="45" rx="8" stroke="currentColor" strokeWidth="2"/>
+      <rect x="8" y="22" width="43" height="31" rx="4" stroke="currentColor" strokeWidth="1.2"/>
+      <text x="29" y="35" textAnchor="middle" fontSize="7" fill="currentColor">120/80</text>
+      <text x="29" y="46" textAnchor="middle" fontSize="5" fill="currentColor">mmHg</text>
+      <path d="M57 37 Q65 10 75 20 Q80 26 78 37" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round"/>
+      <ellipse cx="68" cy="38" rx="10" ry="6" stroke="currentColor" strokeWidth="1.5"/>
+      <line x1="10" y1="55" x2="10" y2="55" stroke="currentColor" strokeWidth="1" strokeDasharray="3"/>
+      <circle cx="75" cy="38" r="3" fill="currentColor" opacity="0.5"/>
+    </svg>},
+    // ECG / Heart Monitor
+    {id:'ecg1', x:'15%', y:'80%', size:110, rot:5, anim:'floatE', dur:'22s', delay:'-12s',
+     svg:<svg viewBox="0 0 120 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="1" y="1" width="118" height="48" rx="6" stroke="currentColor" strokeWidth="1.5"/>
+      <text x="10" y="12" fontSize="7" fill="currentColor" fontWeight="bold">ECG</text>
+      <line x1="1" y1="18" x2="119" y2="18" stroke="currentColor" strokeWidth="0.5" strokeDasharray="4" opacity="0.4"/>
+      <line x1="1" y1="30" x2="119" y2="30" stroke="currentColor" strokeWidth="0.5" strokeDasharray="4" opacity="0.4"/>
+      <path d="M5 30 L20 30 L25 22 L30 38 L35 14 L40 46 L45 30 L65 30 L70 22 L75 38 L80 14 L85 46 L90 30 L119 30" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>},
+    // Pill capsule
+    {id:'pill1', x:'60%', y:'75%', size:60, rot:-20, anim:'floatB', dur:'12s', delay:'-5s',
+     svg:<svg viewBox="0 0 70 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="1" y="1" width="68" height="28" rx="14" stroke="currentColor" strokeWidth="2"/>
+      <line x1="35" y1="1" x2="35" y2="29" stroke="currentColor" strokeWidth="1.5"/>
+      <rect x="1" y="1" width="34" height="28" rx="14" fill="currentColor" fillOpacity="0.2"/>
+    </svg>},
+    // Syringe
+    {id:'syringe1', x:'42%', y:'5%', size:75, rot:30, anim:'floatA', dur:'19s', delay:'-7s',
+     svg:<svg viewBox="0 0 80 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <line x1="2" y1="14" x2="14" y2="14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+      <rect x="14" y="4" width="48" height="20" rx="3" stroke="currentColor" strokeWidth="2"/>
+      <rect x="18" y="8" width="36" height="12" rx="2" stroke="currentColor" strokeWidth="1"/>
+      <rect x="22" y="8" width="16" height="12" fill="currentColor" fillOpacity="0.25"/>
+      <line x1="28" y1="4" x2="28" y2="24" stroke="currentColor" strokeWidth="1" opacity="0.5"/>
+      <line x1="38" y1="4" x2="38" y2="24" stroke="currentColor" strokeWidth="1" opacity="0.5"/>
+      <path d="M62 14 L78 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+      <path d="M74 10 L80 14 L74 18" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+    </svg>},
+    // Extra drop
+    {id:'drop2', x:'55%', y:'25%', size:50, rot:-10, anim:'floatD', dur:'15s', delay:'-4s',
+     svg:<svg viewBox="0 0 20 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M10 0 C4 10 0 18 0 24 A10 10 0 0 0 20 24 C20 18 16 10 10 0Z" fill="currentColor"/>
+    </svg>},
+    // Extra tablet
+    {id:'tablet2', x:'30%', y:'65%', size:30, rot:0, anim:'floatC', dur:'13s', delay:'-2s',
+     svg:<svg viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="15" cy="15" r="14" stroke="currentColor" strokeWidth="2"/>
+      <line x1="5" y1="15" x2="25" y2="15" stroke="currentColor" strokeWidth="1.5"/>
+    </svg>},
+    // Additional pill
+    {id:'pill2', x:'25%', y:'20%', size:50, rot:10, anim:'floatB', dur:'13s', delay:'-2s',
+     svg:<svg viewBox="0 0 70 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="1" y="1" width="68" height="28" rx="14" stroke="currentColor" strokeWidth="2"/>
+      <line x1="35" y1="1" x2="35" y2="29" stroke="currentColor" strokeWidth="1.5"/>
+      <rect x="1" y="1" width="34" height="28" rx="14" fill="currentColor" fillOpacity="0.2"/>
+    </svg>},
+    // Additional droplet
+    {id:'drop1', x:'85%', y:'65%', size:40, rot:0, anim:'floatE', dur:'17s', delay:'-4s',
+     svg:<svg viewBox="0 0 20 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M10 0 C4 10 0 18 0 24 A10 10 0 0 0 20 24 C20 18 16 10 10 0Z" fill="currentColor"/>
+    </svg>},
+    // Additional tablet
+    {id:'tablet1', x:'50%', y:'50%', size:40, rot:-15, anim:'floatC', dur:'11s', delay:'-1s',
+     svg:<svg viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="15" cy="15" r="14" stroke="currentColor" strokeWidth="2"/>
+      <line x1="5" y1="15" x2="25" y2="15" stroke="currentColor" strokeWidth="1.5"/>
+    </svg>},
+    // DNA Helix
+    {id:'dna1', x:'93%', y:'65%', size:55, rot:0, anim:'floatF', dur:'17s', delay:'-11s',
+     svg:<svg viewBox="0 0 30 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M5 5 Q25 20 5 35 Q25 50 5 65 Q25 80 5 95" stroke="currentColor" strokeWidth="2" fill="none"/>
+      <path d="M25 5 Q5 20 25 35 Q5 50 25 65 Q5 80 25 95" stroke="currentColor" strokeWidth="2" fill="none"/>
+      <line x1="8" y1="17" x2="22" y2="22" stroke="currentColor" strokeWidth="1.5" opacity="0.7"/>
+      <line x1="8" y1="27" x2="22" y2="32" stroke="currentColor" strokeWidth="1.5" opacity="0.7"/>
+      <line x1="8" y1="47" x2="22" y2="52" stroke="currentColor" strokeWidth="1.5" opacity="0.7"/>
+      <line x1="8" y1="57" x2="22" y2="62" stroke="currentColor" strokeWidth="1.5" opacity="0.7"/>
+    </svg>},
+    // Microscope
+    {id:'micro1', x:'28%', y:'60%', size:65, rot:-5, anim:'floatD', dur:'21s', delay:'-14s',
+     svg:<svg viewBox="0 0 50 70" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <line x1="25" y1="5" x2="25" y2="20" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/>
+      <rect x="18" y="18" width="14" height="22" rx="3" stroke="currentColor" strokeWidth="2"/>
+      <circle cx="25" cy="12" r="5" stroke="currentColor" strokeWidth="2"/>
+      <rect x="15" y="40" width="20" height="6" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+      <line x1="25" y1="46" x2="25" y2="55" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
+      <line x1="10" y1="55" x2="40" y2="55" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
+      <line x1="10" y1="65" x2="40" y2="65" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+      <line x1="10" y1="55" x2="10" y2="65" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+      <line x1="40" y1="55" x2="40" y2="65" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+    </svg>},
+    // Heart
+    {id:'heart1', x:'50%', y:'45%', size:55, rot:0, anim:'floatB', dur:'10s', delay:'-3.5s',
+     svg:<svg viewBox="0 0 50 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M25 42 C25 42 4 28 4 14 C4 7 9 2 15 2 C19 2 23 5 25 8 C27 5 31 2 35 2 C41 2 46 7 46 14 C46 28 25 42 25 42Z" stroke="currentColor" strokeWidth="2.5" fill="none"/>
+      <path d="M13 18 L19 18 L22 12 L25 22 L28 15 L31 18 L37 18" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>},
+    // Medicine bottle
+    {id:'bottle1', x:'72%', y:'8%', size:48, rot:-10, anim:'floatC', dur:'15s', delay:'-8s',
+     svg:<svg viewBox="0 0 36 70" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="10" y="2" width="16" height="8" rx="2" stroke="currentColor" strokeWidth="2"/>
+      <rect x="4" y="10" width="28" height="56" rx="6" stroke="currentColor" strokeWidth="2"/>
+      <rect x="8" y="24" width="20" height="28" rx="3" fill="currentColor" fillOpacity="0.15"/>
+      <line x1="18" y1="28" x2="18" y2="48" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+      <line x1="10" y1="38" x2="26" y2="38" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+      <text x="18" y="21" textAnchor="middle" fontSize="5" fill="currentColor">Rx</text>
+    </svg>},
+  ];
+
+  const colorDark = 'rgba(124,106,255,1)';
+  const colorLight = 'rgba(99,85,232,1)';
+
+  return (
+    <div className="med-bg" aria-hidden="true" style={{color: 'inherit'}}>
+      <style>{`
+        .med-icon{color:var(--a1)}
+        .fi-floatA{animation:floatA var(--dur,18s) ease-in-out infinite var(--delay,0s)}
+        .fi-floatB{animation:floatB var(--dur,14s) ease-in-out infinite var(--delay,0s)}
+        .fi-floatC{animation:floatC var(--dur,20s) ease-in-out infinite var(--delay,0s)}
+        .fi-floatD{animation:floatD var(--dur,16s) ease-in-out infinite var(--delay,0s)}
+        .fi-floatE{animation:floatE var(--dur,22s) ease-in-out infinite var(--delay,0s)}
+        .fi-floatF{animation:floatF var(--dur,17s) ease-in-out infinite var(--delay,0s)}
+      `}</style>
+      {icons.map(icon=>(
+        <div key={icon.id} className={`med-icon fi-${icon.anim}`}
+          style={{
+            position:'absolute', left:icon.x, top:icon.y,
+            width:icon.size, height:icon.size,
+            '--dur':icon.dur, '--delay':icon.delay,
+            transform:`rotate(${icon.rot}deg)`,
+          }}>
+          {icon.svg}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════
+   DOCTOR MASCOT SVG — Animated Character
+════════════════════════════════════════════ */
+function DoctorMascot({ isWriting, t }) {
+  const mascotRef = useRef(null);
+  const [pupilOffset, setPupilOffset] = useState({x:0,y:0});
+  useEffect(()=>{
+    const handler = e=>{
+      const el = mascotRef.current;
+      if(!el) return;
+      const rect = el.getBoundingClientRect();
+      const cx = rect.left + rect.width/2;
+      const cy = rect.top + rect.height/2;
+      const dx = (e.clientX - cx) / rect.width;
+      const dy = (e.clientY - cy) / rect.height;
+      const max = 0.6; // even tighter so pupils never escape the whites
+      setPupilOffset({x:dx*max, y:dy*max});
+    };
+    window.addEventListener('mousemove', handler);
+    return ()=>window.removeEventListener('mousemove', handler);
+  },[]);
+
+  return (
+    <div ref={mascotRef} className={`doctor-mascot ${isWriting ? 'writing' : ''}`} title="Dr. Amna">
+      <div className="mascot-sparkles">
+        {isWriting && <>
+          <div className="sparkle s1"><svg viewBox="0 0 20 20"><path d="M10 2L11.5 8.5L18 10L11.5 11.5L10 18L8.5 11.5L2 10L8.5 8.5Z" fill="var(--a2)"/></svg></div>
+          <div className="sparkle s2"><svg viewBox="0 0 20 20"><path d="M10 2L11.5 8.5L18 10L11.5 11.5L10 18L8.5 11.5L2 10L8.5 8.5Z" fill="var(--cyan)"/></svg></div>
+          <div className="sparkle s3"><svg viewBox="0 0 20 20"><path d="M10 2L11.5 8.5L18 10L11.5 11.5L10 18L8.5 11.5L2 10L8.5 8.5Z" fill="var(--a3)"/></svg></div>
+          <div className="sparkle s4"><svg viewBox="0 0 20 20"><path d="M10 2L11.5 8.5L18 10L11.5 11.5L10 18L8.5 11.5L2 10L8.5 8.5Z" fill="var(--green)"/></svg></div>
+        </>}
+      </div>
+      <div className="mascot-bubble">{isWriting ? t.chat.mascotWriting : t.chat.mascotIdle}</div>
+      <svg viewBox="0 0 130 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="coatGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.98"/>
+            <stop offset="100%" stopColor="#e8e8ff" stopOpacity="0.95"/>
+          </linearGradient>
+          <linearGradient id="skinGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#ffcba4"/>
+            <stop offset="100%" stopColor="#f4a56a"/>
+          </linearGradient>
+          <linearGradient id="shirtGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#7c6aff"/>
+            <stop offset="100%" stopColor="#a78bfa"/>
+          </linearGradient>
+          <linearGradient id="hairGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#3d2b1f"/>
+            <stop offset="100%" stopColor="#1a0f0a"/>
+          </linearGradient>
+          <linearGradient id="diaryGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#34d399"/>
+            <stop offset="100%" stopColor="#059669"/>
+          </linearGradient>
+          <linearGradient id="capeGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#0b3d91"/>
+            <stop offset="100%" stopColor="#06275f"/>
+          </linearGradient>
+          <filter id="softShadow">
+            <feDropShadow dx="1" dy="2" stdDeviation="2" floodOpacity="0.2"/>
+          </filter>
+          <clipPath id="eyeClipL"><ellipse cx="46" cy="68" rx="12" ry="13"/></clipPath>
+          <clipPath id="eyeClipR"><ellipse cx="84" cy="68" rx="12" ry="13"/></clipPath>
+        </defs>
+
+        {/* ── Body / Lab coat ── */}
+        <g filter="url(#softShadow)">
+          {/* Cape */}
+          <path d="M15 105 Q65 120 115 105 Q110 160 20 160 Z" fill="url(#capeGrad)"/>
+          {/* Coat body */}
+          <path d="M25 105 Q20 115 18 160 L112 160 Q110 115 105 105 Q95 100 65 100 Q35 100 25 105Z" fill="url(#coatGrad)" stroke="#c8c8e8" strokeWidth="1.2"/>
+          {/* Coat lapels */}
+          <path d="M65 100 L52 125 L45 160" stroke="#9999cc" strokeWidth="1.5" fill="none"/>
+          <path d="M65 100 L78 125 L85 160" stroke="#9999cc" strokeWidth="1.5" fill="none"/>
+          {/* Shirt / tie underneath */}
+          <path d="M58 100 L65 100 L72 100 L70 115 L65 130 L60 115Z" fill="url(#shirtGrad)"/>
+          {/* Pocket */}
+          <rect x="28" y="118" width="18" height="16" rx="3" stroke="#aaaacc" strokeWidth="1" fill="#f0f0fa"/>
+          {/* Pocket pen */}
+          <rect x="32" y="110" width="3" height="20" rx="1.5" fill="var(--a1)" opacity="0.9"/>
+          <rect x="37" y="110" width="3" height="20" rx="1.5" fill="var(--cyan)" opacity="0.9"/>
+          {/* Coat buttons */}
+          <circle cx="65" cy="138" r="2.5" fill="#aaaacc"/>
+          <circle cx="65" cy="150" r="2.5" fill="#aaaacc"/>
+          {/* Legs */}
+          <rect x="40" y="158" width="22" height="40" rx="8" fill="#2d2d55"/>
+          <rect x="68" y="158" width="22" height="40" rx="8" fill="#2d2d55"/>
+          {/* Shoes */}
+          <ellipse cx="51" cy="196" rx="16" ry="6" fill="#1a1a30"/>
+          <ellipse cx="79" cy="196" rx="16" ry="6" fill="#1a1a30"/>
+        </g>
+
+        {/* ── Stethoscope ── */}
+        <g className="stethoscope-group">
+          <path d="M50 100 Q42 112 38 122 Q34 132 38 140 Q42 148 52 148 Q62 148 62 138 Q62 130 55 128" stroke="#cccccc" strokeWidth="3" fill="none" strokeLinecap="round"/>
+          <path d="M80 100 Q88 112 90 122 Q90 130 85 135 Q80 140 75 135 Q70 130 72 124" stroke="#cccccc" strokeWidth="3" fill="none" strokeLinecap="round"/>
+          <line x1="50" y1="100" x2="80" y2="100" stroke="#cccccc" strokeWidth="3" strokeLinecap="round"/>
+          <circle cx="52" cy="148" r="7" fill="#888" stroke="#666" strokeWidth="1.5"/>
+          <circle cx="52" cy="148" r="4" fill="#555"/>
+          <circle cx="37" cy="122" r="4" fill="#aaa" stroke="#999" strokeWidth="1"/>
+          <circle cx="91" cy="122" r="4" fill="#aaa" stroke="#999" strokeWidth="1"/>
+        </g>
+
+        {/* ── Left arm (diary arm) ── */}
+        <path d="M28 108 Q14 120 12 138 Q10 150 18 155" stroke="#ffcba4" strokeWidth="10" strokeLinecap="round" fill="none"/>
+        <path d="M28 108 Q14 120 12 138 Q10 150 18 155" stroke="url(#coatGrad)" strokeWidth="8" strokeLinecap="round" fill="none"/>
+
+        {/* ── Right arm (pen arm) ── */}
+        <path d="M102 108 Q116 118 120 134 Q122 146 116 152" stroke="#ffcba4" strokeWidth="10" strokeLinecap="round" fill="none"/>
+        <path d="M102 108 Q116 118 120 134 Q122 146 116 152" stroke="url(#coatGrad)" strokeWidth="8" strokeLinecap="round" fill="none"/>
+
+        {/* ── Left hand ── */}
+        <ellipse cx="17" cy="157" rx="9" ry="7" fill="url(#skinGrad)"/>
+        <path d="M10 154 Q8 150 10 148" stroke="#f4a56a" strokeWidth="2" strokeLinecap="round"/>
+        <path d="M14 152 Q12 147 14 145" stroke="#f4a56a" strokeWidth="2" strokeLinecap="round"/>
+
+        {/* ── Right hand ── */}
+        <ellipse cx="117" cy="154" rx="9" ry="7" fill="url(#skinGrad)"/>
+
+        {/* ── Diary (left hand) ── */}
+        <g className="diary-group">
+          <rect x="4" y="155" width="28" height="36" rx="3" fill="url(#diaryGrad)" stroke="#059669" strokeWidth="1.5"/>
+          <rect x="8" y="159" width="20" height="28" rx="2" fill="white" fillOpacity="0.9"/>
+          {/* Diary lines */}
+          <line x1="10" y1="164" x2="26" y2="164" stroke="#aaa" strokeWidth="0.8"/>
+          <line x1="10" y1="169" x2="26" y2="169" stroke="#aaa" strokeWidth="0.8"/>
+          <line x1="10" y1="174" x2="26" y2="174" stroke="#aaa" strokeWidth="0.8"/>
+          <line x1="10" y1="179" x2="22" y2="179" stroke="#aaa" strokeWidth="0.8"/>
+          {/* Writing lines when active */}
+          {isWriting && <>
+            <line x1="10" y1="164" x2="24" y2="164" stroke="var(--a1)" strokeWidth="1.2"/>
+            <line x1="10" y1="169" x2="20" y2="169" stroke="var(--cyan)" strokeWidth="1.2"/>
+            <line x1="10" y1="174" x2="22" y2="174" stroke="var(--a1)" strokeWidth="1.2"/>
+          </>}
+          {/* Diary binding */}
+          <rect x="4" y="155" width="4" height="36" rx="2" fill="#059669" opacity="0.8"/>
+          <line x1="6" y1="162" x2="6" y2="162" stroke="white" strokeWidth="0.5"/>
+          <line x1="6" y1="168" x2="6" y2="168" stroke="white" strokeWidth="0.5"/>
+          <line x1="6" y1="174" x2="6" y2="174" stroke="white" strokeWidth="0.5"/>
+          <line x1="6" y1="180" x2="6" y2="180" stroke="white" strokeWidth="0.5"/>
+        </g>
+
+        {/* ── Pen (right hand) ── */}
+        <g className={`pen-group ${isWriting ? 'writing' : ''}`}>
+          <rect x="110" y="148" width="5" height="28" rx="2.5" fill="#7c6aff" stroke="#6355e8" strokeWidth="0.8"/>
+          <rect x="110" y="148" width="5" height="10" rx="2.5" fill="#a78bfa"/>
+          <path d="M110 176 L112.5 186 L115 176" fill="#444" stroke="#333" strokeWidth="0.5"/>
+          <line x1="112.5" y1="186" x2="112.5" y2="190" stroke="#222" strokeWidth="1.5" strokeLinecap="round"/>
+          <rect x="110" y="155" width="5" height="2" fill="white" fillOpacity="0.4"/>
+        </g>
+
+        {/* ── Neck & Head ── */}
+        {/* Neck */}
+        <rect x="57" y="76" width="16" height="28" rx="6" fill="url(#skinGrad)"/>
+
+        {/* ── Head ── */}
+        <ellipse cx="65" cy="58" rx="34" ry="36" fill="url(#skinGrad)" stroke="#e8a070" strokeWidth="1"/>
+
+        {/* Hair (hidden by scarf) */}
+        <path d="M31 48 Q33 20 65 18 Q97 20 99 48 Q95 28 65 26 Q35 28 31 48Z" fill="none"/>
+        <path d="M31 44 Q28 38 32 30 Q36 22 44 18" stroke="none"/>
+        <path d="M99 44 Q102 38 98 30 Q94 22 86 18" stroke="none"/>
+
+        {/* ── Black head scarf (top-only) ── */}
+        <path d="M30 48 Q65 5 100 48 Q96 30 65 25 Q34 30 30 48Z" fill="#000"/>
+
+        {/* ears */}
+        <ellipse cx="31" cy="60" rx="6" ry="9" fill="url(#skinGrad)" stroke="#e8a070" strokeWidth="1"/>
+        <ellipse cx="99" cy="60" rx="6" ry="9" fill="url(#skinGrad)" stroke="#e8a070" strokeWidth="1"/>
+
+        {/* ── Black neck scarf ── */}
+        <path d="M40 88 Q65 106 90 88 Q88 98 65 114 Q42 98 40 88Z" fill="#000" fillOpacity="0.9"/>
+
+        {/* ── Eyebrows ── */}
+        <path d="M36 46 Q46 42 55 45" stroke="#5a3a20" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
+        <path d="M75 45 Q84 42 94 46" stroke="#5a3a20" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
+
+        {/* ── LEFT EYE ── */}
+        <g>
+          <ellipse cx="46" cy="62" rx="13" ry="14" fill="white" stroke="#ddd" strokeWidth="0.5"/>
+          <g className="eye-left" style={{transformOrigin:'46px 62px'}}>
+            <ellipse cx="46" cy="62" rx="13" ry="14" fill="white"/>
+            <g className="pupil-left" style={{transform:`translate(${pupilOffset.x}px,${pupilOffset.y}px)`}}>
+              <ellipse cx="47" cy="63" rx="7" ry="7.5" fill="#5c3d20"/>
+              <ellipse cx="47" cy="63" rx="5" ry="5.5" fill="#2a1a0a"/>
+              <circle cx="47" cy="63" r="3" fill="#0a0608"/>
+              <ellipse cx="44" cy="59" rx="2.5" ry="2" fill="white" opacity="0.9"/>
+              <ellipse cx="50" cy="65" rx="1.2" ry="1" fill="white" opacity="0.5"/>
+            </g>
+          </g>
+          {/* Eyelashes */}
+          <path d="M33 58 Q34 55 36 57" stroke="#3d2b1f" strokeWidth="1.2" fill="none"/>
+          <path d="M38 54 Q39 51 41 53" stroke="#3d2b1f" strokeWidth="1.2" fill="none"/>
+          <path d="M45 53 Q46 50 48 52" stroke="#3d2b1f" strokeWidth="1.2" fill="none"/>
+          <path d="M52 54 Q54 51 56 54" stroke="#3d2b1f" strokeWidth="1.2" fill="none"/>
+          <path d="M57 58 Q59 55 60 58" stroke="#3d2b1f" strokeWidth="1.2" fill="none"/>
+        </g>
+
+        {/* ── RIGHT EYE ── */}
+        <g>
+          <ellipse cx="84" cy="62" rx="13" ry="14" fill="white" stroke="#ddd" strokeWidth="0.5"/>
+          <g className="eye-right" style={{transformOrigin:'84px 62px'}}>
+            <ellipse cx="84" cy="62" rx="13" ry="14" fill="white"/>
+            <g className="pupil-right" style={{transform:`translate(${pupilOffset.x}px,${pupilOffset.y}px)`}}>
+              <ellipse cx="85" cy="63" rx="7" ry="7.5" fill="#5c3d20"/>
+              <ellipse cx="85" cy="63" rx="5" ry="5.5" fill="#2a1a0a"/>
+              <circle cx="85" cy="63" r="3" fill="#0a0608"/>
+              <ellipse cx="82" cy="59" rx="2.5" ry="2" fill="white" opacity="0.9"/>
+              <ellipse cx="88" cy="65" rx="1.2" ry="1" fill="white" opacity="0.5"/>
+            </g>
+          </g>
+          {/* Eyelashes */}
+          <path d="M71 58 Q72 55 74 57" stroke="#3d2b1f" strokeWidth="1.2" fill="none"/>
+          <path d="M76 54 Q77 51 79 53" stroke="#3d2b1f" strokeWidth="1.2" fill="none"/>
+          <path d="M83 53 Q84 50 86 52" stroke="#3d2b1f" strokeWidth="1.2" fill="none"/>
+          <path d="M90 54 Q92 51 94 54" stroke="#3d2b1f" strokeWidth="1.2" fill="none"/>
+          <path d="M95 58 Q97 55 98 58" stroke="#3d2b1f" strokeWidth="1.2" fill="none"/>
+        </g>
+
+        {/* ── Nose ── */}
+        <path d="M62 67 Q65 74 68 67" stroke="#d4855a" strokeWidth="1.8" fill="none" strokeLinecap="round"/>
+        <circle cx="62" cy="70" r="2" fill="#d4855a" opacity="0.5"/>
+        <circle cx="68" cy="70" r="2" fill="#d4855a" opacity="0.5"/>
+
+        {/* ── Gentle smile ── */}
+        <path d={isWriting
+          ? "M52 80 Q65 90 78 80"
+          : "M52 80 Q65 87 78 80"}   /* slightly flatter when idle */
+          stroke="#c04444" strokeWidth="2" fill="none" strokeLinecap="round"
+          style={{transition:'d .3s ease'}}/>
+        {/* subtle white tooth line */}
+        {!isWriting && <path d="M58 80 L72 80" stroke="white" strokeWidth="0.8" opacity="0.7"/>}
+
+        {/* ── Red cheeks (small spots) ── */}
+        <ellipse cx="36" cy="72" rx="5" ry="3" fill="#ff4c4c" opacity="0.6"/>
+        <ellipse cx="94" cy="72" rx="5" ry="3" fill="#ff4c4c" opacity="0.6"/>
+
+        {/* ── Doctor cross badge ── */}
+        <g className="doctor-heart">
+          <rect x="56" y="112" width="18" height="18" rx="4" fill="#ff4444" opacity="0.9"/>
+          <rect x="63" y="114" width="4" height="14" rx="1" fill="white"/>
+          <rect x="58" y="118" width="14" height="4" rx="1" fill="white"/>
+        </g>
+
+        {/* ── Name tag ── */}
+        <rect x="70" y="115" width="30" height="16" rx="3" fill="#eeeeff" stroke="#aaaacc" strokeWidth="1"/>
+        <text x="85" y="121" textAnchor="middle" fontSize="4" fill="#333" fontWeight="bold">Dr. Amna</text>
+        <text x="85" y="128" textAnchor="middle" fontSize="3.2" fill="#7070a0">AI Medical</text>
+
+        {/* ── Thermometer in breast pocket ── */}
+        <g className="thermometer-group">
+          <rect x="88" y="108" width="4" height="18" rx="2" fill="#ff6b6b" stroke="#ee4444" strokeWidth="0.8"/>
+          <circle cx="90" cy="127" r="4" fill="#ff4444"/>
+          <rect x="89" y="113" width="2" height="12" rx="1" fill="#ff9999"/>
+          <rect x="89" y="122" width="2" height="5" rx="1" fill="#ff4444"/>
+        </g>
+
+        {/* ── Glasses ── */}
+        <path d="M33 60 L36 60" stroke="#666" strokeWidth="1.5"/>
+        <path d="M57 60 L73 60" stroke="#666" strokeWidth="1.5"/>
+        <path d="M95 60 L97 60" stroke="#666" strokeWidth="1.5"/>
+        <ellipse cx="45" cy="62" rx="12" ry="10" stroke="#777" strokeWidth="1.5" fill="none"/>
+        <ellipse cx="85" cy="62" rx="12" ry="10" stroke="#777" strokeWidth="1.5" fill="none"/>
+        {/* Lens tint */}
+        <ellipse cx="45" cy="62" rx="12" ry="10" fill="#7c6aff" fillOpacity="0.06"/>
+        <ellipse cx="85" cy="62" rx="12" ry="10" fill="#7c6aff" fillOpacity="0.06"/>
+
+        {/* ── Highlight on head ── */}
+        <ellipse cx="55" cy="35" rx="12" ry="8" fill="white" opacity="0.12" transform="rotate(-20 55 35)"/>
+      </svg>
+    </div>
+  );
+}
+
+/* ════════════ TOAST ════════════ */
+function ToastContainer({toasts}) {
+  return <div className="toast-container">{toasts.map(t=><div key={t.id} className="toast"><span className="toast-icon">{t.icon}</span><span>{t.msg}</span></div>)}</div>;
+}
+function Spin(){return <span className="btn-spinner"/>}
+function BigLoad({t}){return <div className="loading-box"><div className="load-orb"><div className="spinner-lg"/></div><span>{t.loading}</span></div>}
+
+/* ════════════ CHAT ════════════ */
+function ChatTab({t, lang, toast, isWriting, setIsWriting}) {
+  const [msgs,setMsgs] = useState([]);
+  const [input,setInput] = useState('');
+  const [loading,setLoading] = useState(false);
+  const [voiceSupported,setVoiceSupported] = useState(false);
+  const [listening,setListening] = useState(false);
+  const [liveMode,setLiveMode] = useState(false);
+  const [voiceReply,setVoiceReply] = useState(true);
+  const [voiceInterim,setVoiceInterim] = useState('');
+
+  const endRef = useRef(null);
+  const taRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const restartTimerRef = useRef(null);
+  const startRecognitionRef = useRef(()=>{});
+  const liveModeRef = useRef(false);
+  const voiceReplyRef = useRef(true);
+  const loadingRef = useRef(false);
+  const inputRef = useRef('');
+  const speakingRef = useRef(false);
+
+  const wordCount = useMemo(()=>msgs.reduce((a,m)=>a+m.text.split(/\s+/).filter(Boolean).length,0),[msgs]);
+  const charLeft = 2000-input.length;
+  const getSpeechRecognitionCtor = ()=>window.SpeechRecognition||window.webkitSpeechRecognition||null;
+
+  useEffect(()=>{endRef.current?.scrollIntoView({behavior:'smooth'})},[msgs,loading]);
+  useEffect(()=>{setVoiceSupported(Boolean(getSpeechRecognitionCtor()))},[]);
+  useEffect(()=>{inputRef.current=input},[input]);
+  useEffect(()=>{loadingRef.current=loading},[loading]);
+  useEffect(()=>{liveModeRef.current=liveMode},[liveMode]);
+  useEffect(()=>{voiceReplyRef.current=voiceReply},[voiceReply]);
+
+  const adjustH = useCallback(()=>{
+    const ta=taRef.current;
+    if(!ta)return;
+    ta.style.height='auto';
+    ta.style.height=Math.min(ta.scrollHeight,140)+'px';
+  },[]);
+
+  const stopRecognition = useCallback(()=>{
+    if(restartTimerRef.current){
+      window.clearTimeout(restartTimerRef.current);
+      restartTimerRef.current=null;
+    }
+    const rec=recognitionRef.current;
+    recognitionRef.current=null;
+    if(rec){
+      rec.onstart=null;
+      rec.onresult=null;
+      rec.onerror=null;
+      rec.onend=null;
+      try{rec.stop();}catch{}
+    }
+    setListening(false);
+    setVoiceInterim('');
+  },[]);
+
+  const stripForSpeech = useCallback(text=>text
+    .replace(/```[\s\S]*?```/g,' ')
+    .replace(/`([^`]+)`/g,' $1 ')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g,'$1')
+    .replace(/[#>*_~|-]/g,' ')
+    .replace(/\s+/g,' ')
+    .trim(),[]);
+
+  const speakReply = useCallback((text)=>{
+    const canSpeak=typeof window!=='undefined'&&'speechSynthesis' in window;
+    if(!canSpeak) return Promise.resolve();
+    if(!(liveModeRef.current||voiceReplyRef.current)) return Promise.resolve();
+
+    const plain=stripForSpeech(text);
+    if(!plain) return Promise.resolve();
+
+    window.speechSynthesis.cancel();
+    speakingRef.current=true;
+
+    return new Promise(resolve=>{
+      const utter=new SpeechSynthesisUtterance(plain);
+      utter.lang=lang==='ur'?'ur-PK':'en-US';
+      utter.rate=lang==='ur'?0.95:1;
+      const finish=()=>{speakingRef.current=false;resolve();};
+      utter.onend=finish;
+      utter.onerror=finish;
+      window.speechSynthesis.speak(utter);
+    });
+  },[lang,stripForSpeech]);
+
+  const clearChat = useCallback(()=>{
+    setMsgs([]);
+    toast(t.chat.cleared,'CLR');
+  },[t.chat.cleared,toast]);
+
+  const send = useCallback(async text=>{
+    const msg=(text||inputRef.current).trim();
+    if(!msg||loadingRef.current)return;
+
+    stopRecognition();
+    if(typeof window!=='undefined'&&window.speechSynthesis) window.speechSynthesis.cancel();
+    speakingRef.current=false;
+
+    setInput('');
+    setVoiceInterim('');
+    setIsWriting(false);
+    if(taRef.current) taRef.current.style.height='44px';
+
+    const ts=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    setMsgs(p=>[...p,{role:'user',text:msg,ts}]);
+
+    loadingRef.current=true;
+    setLoading(true);
+
+    let replyText='';
+    try{
+      const data=await apiChat(msg);
+      replyText=data.response||'';
+      const ts2=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+      setMsgs(p=>[...p,{role:'ai',text:replyText,emergency:data.emergency,ts:ts2}]);
+    }catch{
+      replyText=`ERROR: Cannot reach backend at \`${API}\`. Start the FastAPI server and refresh.`;
+      const ts2=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+      setMsgs(p=>[...p,{role:'ai',text:replyText,emergency:false,ts:ts2}]);
+    }finally{
+      loadingRef.current=false;
+      setLoading(false);
+    }
+
+    if(replyText){
+      await speakReply(replyText);
+    }
+    if(liveModeRef.current&&!loadingRef.current&&!speakingRef.current){
+      startRecognitionRef.current('live');
+    }
+  },[setIsWriting,speakReply,stopRecognition]);
+
+  const runVoiceCommand = useCallback(rawText=>{
+    const cleaned=rawText.replace(/\s+/g,' ').trim();
+    if(!cleaned) return false;
+    const normalized=cleaned.toLowerCase();
+    const hasAny=phrases=>phrases.some(p=>normalized===p||normalized.includes(p));
+
+    if(hasAny(['clear chat','new chat','clear conversation','chat saaf','chat saaf karo'])){
+      clearChat();
+      toast(t.chat.voiceCommandDone,'CMD');
+      return true;
+    }
+
+    if(hasAny(['start live mode','start voice chat','live mode on','live chat start','live shuru'])){
+      if(!voiceSupported){
+        toast(t.chat.voiceNotSupported,'WARN');
+        return true;
+      }
+      setLiveMode(true);
+      liveModeRef.current=true;
+      setVoiceReply(true);
+      voiceReplyRef.current=true;
+      toast(t.chat.voiceLiveOn,'LIVE');
+      if(!loadingRef.current&&!speakingRef.current) startRecognitionRef.current('live');
+      return true;
+    }
+
+    if(hasAny(['stop live mode','stop voice chat','live mode off','live band','stop live'])){
+      setLiveMode(false);
+      liveModeRef.current=false;
+      stopRecognition();
+      if(typeof window!=='undefined'&&window.speechSynthesis) window.speechSynthesis.cancel();
+      speakingRef.current=false;
+      toast(t.chat.voiceLiveOff,'STOP');
+      return true;
+    }
+
+    if(hasAny(['stop listening','mic off','stop mic','stop voice'])){
+      stopRecognition();
+      toast(t.chat.voiceStop,'MIC');
+      return true;
+    }
+
+    const sendMatch=cleaned.match(/^(send|submit|ask|bhejo|poochho)\s+(.+)$/i);
+    if(sendMatch&&sendMatch[2]){
+      send(sendMatch[2].trim());
+      return true;
+    }
+
+    if(['send','submit','bhejo'].includes(normalized)){
+      const draft=inputRef.current.trim();
+      if(draft) send(draft);
+      else toast(t.chat.voiceSendMissing,'INFO');
+      return true;
+    }
+
+    return false;
+  },[clearChat,send,stopRecognition,t.chat.voiceCommandDone,t.chat.voiceLiveOff,t.chat.voiceLiveOn,t.chat.voiceNotSupported,t.chat.voiceSendMissing,t.chat.voiceStop,toast,voiceSupported]);
+
+  const startRecognition = useCallback((mode='single')=>{
+    const Recognition=getSpeechRecognitionCtor();
+    if(!Recognition){
+      setVoiceSupported(false);
+      toast(t.chat.voiceNotSupported,'WARN');
+      return;
+    }
+
+    setVoiceSupported(true);
+    stopRecognition();
+
+    const rec=new Recognition();
+    recognitionRef.current=rec;
+    rec.lang=lang==='ur'?'ur-PK':'en-US';
+    rec.interimResults=true;
+    rec.continuous=mode==='live';
+    rec.maxAlternatives=1;
+
+    rec.onstart=()=>setListening(true);
+    rec.onerror=event=>{
+      if(event.error==='not-allowed'||event.error==='service-not-allowed'){
+        setLiveMode(false);
+        liveModeRef.current=false;
+      }
+      if(event.error!=='no-speech'&&event.error!=='aborted'){
+        toast(`Voice error: ${event.error}`,'WARN');
+      }
+    };
+    rec.onresult=event=>{
+      let interim='';
+      let finalText='';
+      for(let i=event.resultIndex;i<event.results.length;i++){
+        const txt=event.results[i][0]?.transcript?.trim()||'';
+        if(!txt) continue;
+        if(event.results[i].isFinal) finalText+=` ${txt}`;
+        else interim+=` ${txt}`;
+      }
+      setVoiceInterim(interim.trim());
+
+      const spoken=finalText.trim();
+      if(!spoken) return;
+      setVoiceInterim('');
+
+      if(runVoiceCommand(spoken)){
+        if(mode==='single'){
+          try{rec.stop();}catch{}
+        }
+        return;
+      }
+
+      if(mode==='live'){
+        send(spoken);
+        return;
+      }
+
+      setInput(prev=>prev?`${prev} ${spoken}`:spoken);
+      setIsWriting(true);
+      window.setTimeout(adjustH,0);
+      toast(t.chat.voiceCaptured,'MIC');
+      try{rec.stop();}catch{}
+    };
+    rec.onend=()=>{
+      recognitionRef.current=null;
+      setListening(false);
+      setVoiceInterim('');
+      const shouldRestart=mode==='live'&&liveModeRef.current&&!loadingRef.current&&!speakingRef.current;
+      if(shouldRestart){
+        restartTimerRef.current=window.setTimeout(()=>startRecognitionRef.current('live'),350);
+      }
+    };
+
+    try{
+      rec.start();
+    }catch(err){
+      if(err?.name!=='InvalidStateError'){
+        toast('Unable to start microphone.','WARN');
+      }
+    }
+  },[adjustH,lang,runVoiceCommand,send,setIsWriting,stopRecognition,t.chat.voiceCaptured,t.chat.voiceNotSupported,toast]);
+
+  useEffect(()=>{startRecognitionRef.current=startRecognition},[startRecognition]);
+  useEffect(()=>()=>{stopRecognition();if(typeof window!=='undefined'&&window.speechSynthesis) window.speechSynthesis.cancel();},[stopRecognition]);
+
+  const toggleVoiceReply = ()=>{
+    setVoiceReply(prev=>{
+      const next=!prev;
+      toast(next?t.chat.voiceReplyOn:t.chat.voiceReplyOff,next?'ON':'OFF');
+      return next;
+    });
+  };
+
+  const toggleMic = ()=>{
+    if(!voiceSupported){
+      toast(t.chat.voiceNotSupported,'WARN');
+      return;
+    }
+    if(listening&&!liveMode){
+      stopRecognition();
+      return;
+    }
+    setLiveMode(false);
+    liveModeRef.current=false;
+    startRecognition('single');
+  };
+
+  const toggleLiveMode = ()=>{
+    if(!voiceSupported){
+      toast(t.chat.voiceNotSupported,'WARN');
+      return;
+    }
+    if(liveModeRef.current){
+      setLiveMode(false);
+      liveModeRef.current=false;
+      stopRecognition();
+      if(typeof window!=='undefined'&&window.speechSynthesis) window.speechSynthesis.cancel();
+      speakingRef.current=false;
+      toast(t.chat.voiceLiveOff,'STOP');
+      return;
+    }
+    setLiveMode(true);
+    liveModeRef.current=true;
+    setVoiceReply(true);
+    voiceReplyRef.current=true;
+    toast(t.chat.voiceLiveOn,'LIVE');
+    if(!loadingRef.current&&!speakingRef.current) startRecognition('live');
+  };
+
+  const onKey=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}};
+  const onChange=e=>{setInput(e.target.value);adjustH();setIsWriting(e.target.value.length>0);};
+  const copyMsg=text=>{navigator.clipboard.writeText(text).catch(()=>{});toast(t.chat.copied,'COPY');};
+
+  return (
+    <div className="tab-panel active">
+      <div className="chat-root">
+        <div className="chat-main">
+          <div className="chat-topbar">
+            <div className="chat-model-select">
+              <div className="chat-model-dot"/>
+              <span className="chat-model-name">{t.chat.model}</span>
+              <span style={{fontSize:'.7rem',color:'var(--tx3)'}}>v</span>
+            </div>
+            <div className="chat-topbar-actions">
+              <button className={`icon-btn${voiceReply?' active':''}`} onClick={toggleVoiceReply}>
+                {voiceReply?'S+':'S-'}
+                <span className="tip">{voiceReply?t.chat.voiceReplyOn:t.chat.voiceReplyOff}</span>
+              </button>
+              <button className={`icon-btn${liveMode?' active':''}`} onClick={toggleLiveMode} disabled={!voiceSupported}>
+                {liveMode?'STOP':'LIVE'}
+                <span className="tip">{liveMode?t.chat.voiceLiveStop:t.chat.voiceLiveStart}</span>
+              </button>
+              <button className="icon-btn" onClick={clearChat}>
+                CLR
+                <span className="tip">{t.chat.clear}</span>
+              </button>
+            </div>
+          </div>
+          <div className="chat-msgs">
+            {msgs.length===0&&!loading&&(
+              <div className="chat-welcome">
+                <div className="welcome-orb">MD</div>
+                <div className="welcome-title">{t.chat.welcomeTitle}</div>
+                <div className="welcome-sub">{t.chat.welcomeSub}</div>
+                <div className="welcome-chips">
+                  {t.chat.chips.map((c,i)=><button key={i} className="welcome-chip" onClick={()=>send(c)} disabled={loading}>{c}</button>)}
+                </div>
+              </div>
+            )}
+            {msgs.map((m,i)=>(
+              <div key={i} className={`msg-row ${m.role} ${m.emergency?'emergency':''}`} style={{animationDelay:`${i*.04}s`}}>
+                <div className="msg-avatar">{m.role==='user'?t.chat.you.slice(0,2):'AI'}</div>
+                <div className="msg-content">
+                  <div className="msg-meta">{m.ts}</div>
+                  <div className="msg-bubble">
+                    {m.role==='ai'?<div className="md" dangerouslySetInnerHTML={{__html:marked.parse(m.text)}}/>:m.text}
+                  </div>
+                  <div className="msg-actions">
+                    <button className="msg-action-btn" onClick={()=>copyMsg(m.text)}>C</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {loading&&<div className="msg-row ai"><div className="msg-avatar">AI</div><div className="msg-content"><div className="msg-bubble"><div className="typing-row"><div className="t-dot"/><div className="t-dot"/><div className="t-dot"/></div></div></div></div>}
+            <div ref={endRef}/>
+          </div>
+          <DoctorMascot isWriting={isWriting} t={t}/>
+          <div className="chat-input-zone">
+            <div className="input-box">
+              <textarea ref={taRef} className="chat-ta" placeholder={t.chat.ph} value={input} onChange={onChange} onKeyDown={onKey} rows={1} disabled={loading} maxLength={2000}/>
+              <div className="input-actions">
+                <button className={`icon-btn${listening&&!liveMode?' active':''}`} onClick={toggleMic} disabled={!voiceSupported||loading}>
+                  {listening&&!liveMode?'STOP':'MIC'}
+                  <span className="tip">{listening&&!liveMode?t.chat.voiceStop:t.chat.voiceMic}</span>
+                </button>
+                <button className="send-btn" onClick={()=>send()} disabled={loading||!input.trim()}>
+                  {loading?<Spin/>:'^'}
+                </button>
+              </div>
+            </div>
+            <div className="input-footer">
+              <span className="input-hint">KB: {t.chat.hint}</span>
+              <span className={`char-count${charLeft<200?' warn':''}${charLeft<50?' danger':''}`}>{charLeft}</span>
+            </div>
+            <div className="input-hint" style={{marginTop:'6px'}}>
+              {voiceSupported
+                ? (liveMode
+                    ? `LIVE: ${t.chat.voiceLiveOn}`
+                    : (listening ? `LISTEN: ${t.chat.voiceListening}` : `VOICE: ${t.chat.voiceCommandsHint}`))
+                : `WARN: ${t.chat.voiceNotSupported}`}
+            </div>
+            {voiceInterim&&<div className="voice-interim">HEARD: {t.chat.voiceInterim}: {voiceInterim}</div>}
+          </div>
+        </div>
+        <div className="chat-right">
+          <div className="panel-section">
+            <div className="panel-heading">{t.chat.qs}</div>
+            {t.chat.qsList.map((q,i)=><button key={i} className="quick-q" onClick={()=>send(q)} disabled={loading}>{q}</button>)}
+          </div>
+          <div className="panel-section">
+            <div className="panel-heading">{t.chat.statsLabel}</div>
+            <div className="conv-stat"><span className="conv-stat-label">{t.chat.msgs}</span><span className="conv-stat-val">{msgs.length}</span></div>
+            <div className="conv-stat"><span className="conv-stat-label">{t.chat.words}</span><span className="conv-stat-val">{wordCount}</span></div>
+          </div>
+          <div className="emergency-panel">
+            <div className="emg-title">ALERT {t.chat.emergency}</div>
+            <div className="emg-number"><span className="emg-label">PK Pakistan</span><span className="emg-val">1122 / 115</span></div>
+            <div className="emg-number"><span className="emg-label">Global</span><span className="emg-val">112 / 911</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════ DRUG ════════════ */
+function DrugTab({t,toast}){
+  const [q,setQ]=useState('');const [res,setRes]=useState(null);const [loading,setLoading]=useState(false);const [err,setErr]=useState(false);
+  const search=async(val)=>{const v=(val||q).trim();if(!v)return;if(val)setQ(v);setLoading(true);setErr(false);setRes(null);try{setRes(await apiDrug(v));toast('Drug data loaded','💊');}catch{setErr(true);}finally{setLoading(false);}};
+  return(
+    <div className="tab-panel active"><div className="tool-layout">
+      <div className="tool-header"><h1 className="tool-title">{t.drug.title}</h1><p className="tool-sub">{t.drug.sub}</p></div>
+      <div className="search-box">
+        <div className="search-row">
+          <input className="search-in" placeholder={t.drug.ph} value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==='Enter'&&search()}/>
+          <button className="action-btn" onClick={()=>search()} disabled={loading||!q.trim()}>{loading?<><Spin/>Loading…</>:<>💊 {t.drug.btn}</>}</button>
+        </div>
+        {res&&<p style={{marginTop:'12px',fontSize:'.73rem',color:'var(--tx3)'}}>⚠️ {t.drug.disc}</p>}
+      </div>
+      {loading&&<BigLoad t={t}/>}
+      {err&&<div className="error-box">⚠️ {t.drug.noData}</div>}
+      {res&&<div className="result-card">
+        <div className="rcard-head"><div className="rcard-icon icon-v">💊</div><div><div className="rcard-title">{res.name}</div><div className="rcard-sub">OpenFDA Drug Label Database</div></div></div>
+        <div className="info-seg"><div className="seg-label"><span className="seg-label-dot dot-v"/>{t.drug.indications}</div><ul className="info-list">{res.indications.map((x,i)=><li key={i}>{x}</li>)}</ul></div>
+        <div className="info-seg"><div className="seg-label"><span className="seg-label-dot dot-a"/>{t.drug.warnings}</div><ul className="info-list">{res.warnings.map((x,i)=><li key={i}>{x}</li>)}</ul></div>
+        <div className="info-seg"><div className="seg-label"><span className="seg-label-dot dot-r"/>{t.drug.side}</div><ul className="info-list">{res.side_effects.map((x,i)=><li key={i}>{x}</li>)}</ul></div>
+      </div>}
+    </div></div>
+  );
+}
+
+/* ════════════ RESEARCH ════════════ */
+function ResearchTab({t,toast}){
+  const [q,setQ]=useState('');const [res,setRes]=useState(null);const [loading,setLoading]=useState(false);const [err,setErr]=useState(false);
+  const search=async(val)=>{const v=(val||q).trim();if(!v)return;if(val)setQ(v);setLoading(true);setErr(false);setRes(null);try{setRes(await apiResearch(v));toast('Research loaded','🔬');}catch{setErr(true);}finally{setLoading(false);}};
+  return(
+    <div className="tab-panel active"><div className="tool-layout">
+      <div className="tool-header"><h1 className="tool-title">{t.research.title}</h1><p className="tool-sub">{t.research.sub}</p></div>
+      <div className="search-box">
+        <div className="search-row">
+          <input className="search-in" placeholder={t.research.ph} value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==='Enter'&&search()}/>
+          <button className="action-btn" onClick={()=>search()} disabled={loading||!q.trim()}>{loading?<><Spin/>Loading…</>:<>🔬 {t.research.btn}</>}</button>
+        </div>
+        <div className="chip-strip"><span className="chip-label">Quick:</span>{t.research.chips.map(c=><button key={c} className="chip" onClick={()=>search(c)}>{c}</button>)}</div>
+      </div>
+      {loading&&<BigLoad t={t}/>}
+      {err&&<div className="error-box">⚠️ {t.error}</div>}
+      {res&&res.articles.length===0&&<div className="empty-box"><span className="empty-icon">🔍</span>{t.research.noResults}</div>}
+      {res&&res.articles.length>0&&<>
+        <div className="result-bar"><span className="result-bar-count"><span>{res.total_found.toLocaleString()}</span> {t.research.found} — {t.research.showing} {res.articles.length}</span><span className="result-bar-note">PubMed · NCBI</span></div>
+        <div className="res-list">{res.articles.map((a,i)=><div key={i} className="res-card" style={{animationDelay:`${i*.06}s`}}><div className="res-card-title">{a.title}</div><div className="res-meta"><span className="tag tag-v">📅 {a.publication_date}</span><span className="tag tag-s">PMID {a.pubmed_id}</span></div><div className="res-summary">{a.summary}</div><a className="pubmed-btn" href={`https://pubmed.ncbi.nlm.nih.gov/${a.pubmed_id}`} target="_blank" rel="noopener noreferrer">{t.research.viewBtn}</a></div>)}</div>
+      </>}
+    </div></div>
+  );
+}
+
+/* ════════════ WHO STATS ════════════ */
+function StatsTab({t,toast}){
+  const [q,setQ]=useState('');const [res,setRes]=useState(null);const [loading,setLoading]=useState(false);const [err,setErr]=useState(false);
+  const search=async(val)=>{const v=(val||q).trim();if(!v)return;if(val)setQ(v);setLoading(true);setErr(false);setRes(null);try{setRes(await apiStats(v));toast('WHO data loaded','🌍');}catch{setErr(true);}finally{setLoading(false);}};
+  const records=res?.data?.records||[];
+  return(
+    <div className="tab-panel active"><div className="tool-layout">
+      <div className="tool-header"><h1 className="tool-title">{t.stats.title}</h1><p className="tool-sub">{t.stats.sub}</p></div>
+      <div className="search-box">
+        <div className="search-row">
+          <input className="search-in" placeholder={t.stats.ph} value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==='Enter'&&search()}/>
+          <button className="action-btn" onClick={()=>search()} disabled={loading||!q.trim()}>{loading?<><Spin/>Loading…</>:<>🌍 {t.stats.btn}</>}</button>
+        </div>
+        <div className="chip-strip"><span className="chip-label">Topics:</span>{t.stats.chips.map(c=><button key={c} className="chip" onClick={()=>search(c)}>{c}</button>)}</div>
+      </div>
+      {loading&&<BigLoad t={t}/>}
+      {err&&<div className="error-box">⚠️ {t.error}</div>}
+      {res&&records.length===0&&<div className="empty-box"><span className="empty-icon">🌍</span>{t.stats.noData}</div>}
+      {res&&records.length>0&&<div className="result-card">
+        <div className="rcard-head"><div className="rcard-icon icon-g">🌍</div><div><div className="rcard-title">{res.topic}</div><div className="rcard-sub">{res.data?.indicator_code} · {res.source}</div></div></div>
+        <div className="stats-wrap"><table className="stats-table">
+          <thead><tr><th>{t.stats.country}</th><th>{t.stats.year}</th><th>{t.stats.value}</th><th>{t.stats.dim}</th></tr></thead>
+          <tbody>{records.map((r,i)=><tr key={i}><td><span className="country-tag">{r.country}</span></td><td>{r.year}</td><td><strong>{typeof r.value==='number'?r.value.toLocaleString():r.value}</strong></td><td style={{color:'var(--tx3)',fontSize:'.73rem'}}>{r.dimension||'—'}</td></tr>)}</tbody>
+        </table></div>
+        {res.data?.note&&<p style={{marginTop:'12px',fontSize:'.72rem',color:'var(--tx3)'}}>ℹ️ {res.data.note}</p>}
+      </div>}
+    </div></div>
+  );
+}
+
+/* ════════════ APP ════════════ */
+function App(){
+  const [lang,setLang]=useState('en');
+  const [tab,setTab]=useState('chat');
+  const [theme,setTheme]=useState('dark');
+  const [isWriting,setIsWriting]=useState(false);
+  const {toasts,add:toast}=useToast();
+  const t=T[lang];
+
+  useEffect(()=>{
+    const apply=()=>{let r=theme;if(theme==='system')r=window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',r);};
+    apply();
+    const mq=window.matchMedia('(prefers-color-scheme:dark)');
+    mq.addEventListener('change',apply);return()=>mq.removeEventListener('change',apply);
+  },[theme]);
+
+  useEffect(()=>{
+    document.body.className=lang==='ur'?'urdu':'';
+    document.documentElement.dir=lang==='ur'?'rtl':'ltr';
+    document.documentElement.lang=lang;
+  },[lang]);
+
+  const themeOpts=[{k:'light',i:'☀️',l:'Light'},{k:'dark',i:'🌙',l:'Dark'},{k:'system',i:'💻',l:'System'}];
+  const tabDef=t.tabs;
+
+  return(
+    <div className="app">
+      <div className="bg-canvas">
+        <div className="bg-orb" style={{width:'600px',height:'600px',background:'radial-gradient(circle,rgba(124,106,255,.12),transparent 70%)',top:'-200px',left:'-100px'}}/>
+        <div className="bg-orb" style={{width:'500px',height:'500px',background:'radial-gradient(circle,rgba(34,211,238,.08),transparent 70%)',top:'40%',right:'-150px',animationDelay:'-4s'}}/>
+        <div className="bg-orb" style={{width:'400px',height:'400px',background:'radial-gradient(circle,rgba(251,113,133,.07),transparent 70%)',bottom:'-100px',left:'30%',animationDelay:'-8s'}}/>
+      </div>
+      <div className="bg-grid"/>
+      <MedicalBackground/>
+      <ToastContainer toasts={toasts}/>
+
+      <header className="header">
+        <div className="header-inner">
+          <div className="logo">
+            <div className="logo-icon-wrap"><div className="logo-pulse"/><div className="logo-icon">🏥</div></div>
+            <div><div className="logo-text">My Doctor</div></div>
+            <span className="logo-badge">{t.logoSub}</span>
+          </div>
+          <div className="header-center">
+            <div className="status-pill"><div className="status-dot"/>{t.chat.status}</div>
+          </div>
+          <div className="header-right">
+            <div className="ctrl-group">
+              {themeOpts.map(o=><button key={o.k} className={`ctrl-btn${theme===o.k?' active':''}`} onClick={()=>setTheme(o.k)}>{o.i}<span className="ctrl-tooltip">{o.l}</span></button>)}
+            </div>
+            <div className="lang-toggle">
+              <button className={`lang-btn${lang==='en'?' active':''}`} onClick={()=>setLang('en')}>EN</button>
+              <button className={`lang-btn${lang==='ur'?' active':''}`} onClick={()=>setLang('ur')}>اردو</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div className="disclaimer-strip"><span className="disc-badge">{t.discBadge}</span>{t.disc}</div>
+
+      <div className="body-layout">
+        <nav className="sidebar-nav">
+          {tabDef.map(tb=>(
+            <button key={tb.k} className={`snav-btn${tab===tb.k?' active':''}`} onClick={()=>setTab(tb.k)}>
+              <span className="snav-icon">{tb.i}</span>
+              <span className="snav-label">{tb.l}</span>
+              <span className="snav-tooltip">{tb.l}</span>
+            </button>
+          ))}
+          <div className="snav-divider"/>
+        </nav>
+        <div className="content-area">
+          {tab==='chat'&&<ChatTab t={t} lang={lang} toast={toast} isWriting={isWriting} setIsWriting={setIsWriting}/>}
+          {tab==='drug'&&<DrugTab t={t} toast={toast}/>}
+          {tab==='research'&&<ResearchTab t={t} toast={toast}/>}
+          {tab==='stats'&&<StatsTab t={t} toast={toast}/>}
+        </div>
+      </div>
+
+      <footer className="footer">
+        <div className="footer-left">
+          <span>© 2026 Sohaib Shahid. All rights reserved.</span>
+        </div>
+        <div className="footer-powered">
+          {['Groq LLM','OpenFDA','PubMed','WHO GHO'].map(p=><span key={p} className="footer-tag">{p}</span>)}
+        </div>
+      </footer>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
