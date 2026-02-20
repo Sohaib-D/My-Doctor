@@ -197,21 +197,31 @@ export default function AuthCard({
           Continue with Google
         </button>
 
-        <button
-          type="button"
-          onClick={() => onModeChange(isRegister ? 'login' : 'register')}
-          className="mt-5 text-sm text-slate-300 underline decoration-slate-500 underline-offset-4 hover:text-white"
-        >
-          {isRegister ? 'Already registered? Sign in' : 'Need an account? Create one'}
-        </button>
-        {!isRegister && (
+        {isRegister ? (
           <button
             type="button"
-            onClick={onContinueAsGuest}
-            className="mt-3 text-sm text-slate-300 underline decoration-slate-500 underline-offset-4 hover:text-white"
+            onClick={() => onModeChange('login')}
+            className="mt-5 text-sm text-slate-300 underline decoration-slate-500 underline-offset-4 hover:text-white"
           >
-            Continue as Guest
+            Already registered? Sign in
           </button>
+        ) : (
+          <div className="mt-5 flex w-full items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => onModeChange('register')}
+              className="text-left text-sm text-slate-300 underline decoration-slate-500 underline-offset-4 hover:text-white"
+            >
+              Need an account? Create one
+            </button>
+            <button
+              type="button"
+              onClick={onContinueAsGuest}
+              className="text-right text-sm text-slate-300 underline decoration-slate-500 underline-offset-4 hover:text-white"
+            >
+              Continue as Guest
+            </button>
+          </div>
         )}
       </div>
     </div>

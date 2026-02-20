@@ -196,6 +196,17 @@ export const api = {
       allowUnauthenticated: true,
     });
   },
+  getSettings(token) {
+    return request('/settings', { token, allowUnauthenticated: true });
+  },
+  updateSettings(payload, token) {
+    return request('/settings', {
+      method: 'PUT',
+      body: payload,
+      token,
+      allowUnauthenticated: true,
+    });
+  },
   getProfile(token) {
     return request('/profile', { token, allowUnauthenticated: true });
   },
@@ -215,9 +226,36 @@ export const api = {
       allowUnauthenticated: true,
     });
   },
+  getPersonalization(token) {
+    return request('/personalization', { token, allowUnauthenticated: true });
+  },
+  createPersonalization(payload, token) {
+    return request('/personalization', {
+      method: 'POST',
+      body: payload,
+      token,
+      allowUnauthenticated: true,
+    });
+  },
+  updatePersonalization(payload, token) {
+    return request('/personalization', {
+      method: 'PUT',
+      body: payload,
+      token,
+      allowUnauthenticated: true,
+    });
+  },
   createShare(sessionId, token) {
     return request(`/sessions/${encodeURIComponent(sessionId)}/share`, {
       method: 'POST',
+      token,
+      allowUnauthenticated: true,
+    });
+  },
+  sendReview(payload, token) {
+    return request('/send-review', {
+      method: 'POST',
+      body: payload,
       token,
       allowUnauthenticated: true,
     });

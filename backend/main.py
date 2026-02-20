@@ -9,7 +9,17 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.config import get_settings
 from backend.database.session import init_db
-from backend.routers import auth_router, chat_router, health_router, history_router, profile_router, tools_router
+from backend.routers import (
+    auth_router,
+    chat_router,
+    health_router,
+    history_router,
+    personalization_router,
+    profile_router,
+    review_router,
+    settings_router,
+    tools_router,
+)
 from backend.utils.logging import logger, setup_logging
 
 
@@ -40,7 +50,10 @@ app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(history_router)
+app.include_router(personalization_router)
 app.include_router(profile_router)
+app.include_router(review_router)
+app.include_router(settings_router)
 app.include_router(tools_router)
 
 
@@ -53,7 +66,6 @@ def startup() -> None:
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DIST_DIR = PROJECT_ROOT / "frontend" / "dist"
 DIST_INDEX = DIST_DIR / "index.html"
-LEGACY_HTML = PROJECT_ROOT / "frontend" / "legacy_index.html"
 
 if DIST_DIR.exists():
     assets_dir = DIST_DIR / "assets"
@@ -64,8 +76,6 @@ if DIST_DIR.exists():
 def _frontend_entry():
     if DIST_INDEX.exists():
         return FileResponse(str(DIST_INDEX))
-    if LEGACY_HTML.exists():
-        return FileResponse(str(LEGACY_HTML))
     return {
         "message": "Frontend build not found.",
         "hint": "Run: npm --prefix frontend install && npm --prefix frontend run build",

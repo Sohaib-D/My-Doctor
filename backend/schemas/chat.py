@@ -5,11 +5,17 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from backend.schemas.personalization import ChatPersonalizationContext
+
+
+ChatMode = Literal["chat", "drug", "research", "who"]
+
 
 class StructuredMedicalResponse(BaseModel):
     symptoms: str
     possible_causes: str
     advice: str
+    final_response: str = ""
     urgency_level: Literal["low", "moderate", "high", "emergency"]
     when_to_see_doctor: str
     references: list[str] = Field(default_factory=list)
@@ -20,7 +26,9 @@ class ChatRequest(BaseModel):
     voice_text: str | None = None
     session_id: str | None = None
     language: Literal["en", "ur"] | None = None
+    mode: ChatMode = "chat"
     profile: ProfileContext | None = None
+    personalization: ChatPersonalizationContext | None = None
 
     @model_validator(mode="after")
     def require_text_or_voice(self) -> "ChatRequest":
@@ -38,6 +46,7 @@ class ChatResponse(BaseModel):
     structured: StructuredMedicalResponse
     emergency: bool
     language: Literal["en", "ur"]
+    mode: ChatMode = "chat"
     tts_url: str | None = None
     disclaimer: str = (
         "This is educational information, not a diagnosis. "

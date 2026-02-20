@@ -52,6 +52,13 @@ class Settings:
     rate_limit_per_minute: int
     cors_origins: list[str]
 
+    mail_server: str | None
+    mail_port: int
+    mail_username: str | None
+    mail_password: str | None
+    mail_from: str | None
+    mail_to: str | None
+
 
 def _normalize_database_url(raw_url: str) -> str:
     url = raw_url.strip()
@@ -98,4 +105,10 @@ def get_settings() -> Settings:
                 "https://127.0.0.1:8000",
             ],
         ),
+        mail_server=os.getenv("MAIL_SERVER"),
+        mail_port=int(os.getenv("MAIL_PORT", "587")),
+        mail_username=os.getenv("MAIL_USERNAME"),
+        mail_password=os.getenv("MAIL_PASSWORD"),
+        mail_from=os.getenv("MAIL_FROM"),
+        mail_to=os.getenv("MAIL_TO"),
     )

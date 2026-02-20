@@ -187,5 +187,25 @@ class UserMedicalProfile(Base):
     )
 
 
+class UserPersonalization(Base):
+    __tablename__ = "user_personalization"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    firebase_uid: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    response_style: Mapped[str] = mapped_column(String(40), default="default", nullable=False)
+    custom_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    nickname: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    occupation: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    about_user: Mapped[str | None] = mapped_column(Text, nullable=True)
+    allow_memory: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    allow_chat_reference: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+
 Index("ix_chat_messages_user_created", ChatMessage.user_id, ChatMessage.created_at)
 Index("ix_chat_messages_session_created", ChatMessage.session_id, ChatMessage.created_at)

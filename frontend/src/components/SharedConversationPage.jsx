@@ -3,7 +3,7 @@ import { Loader2, Stethoscope } from 'lucide-react';
 
 import MedicalBackground from './MedicalBackground';
 import { api } from '../services/api';
-import { formatTime, normalizeMessageText } from '../utils/chat';
+import { formatTime, normalizeMessageText, renderMessageHtml } from '../utils/chat';
 
 export default function SharedConversationPage({ shareId }) {
   const [loading, setLoading] = useState(true);
@@ -72,7 +72,14 @@ export default function SharedConversationPage({ shareId }) {
                   : 'mr-auto border border-white/10 bg-slate-800/80 text-slate-100'
               }`}
             >
-              <p className="whitespace-pre-wrap text-sm leading-6">{normalizeMessageText(message)}</p>
+              {message.role === 'assistant' ? (
+                <div
+                  className="message-rich text-sm leading-6"
+                  dangerouslySetInnerHTML={{ __html: renderMessageHtml(message) }}
+                />
+              ) : (
+                <p className="whitespace-pre-wrap text-sm leading-6">{normalizeMessageText(message)}</p>
+              )}
               <div className="mt-2 text-[11px] text-slate-400">{formatTime(message.created_at)}</div>
             </div>
           ))}
@@ -85,4 +92,3 @@ export default function SharedConversationPage({ shareId }) {
     </div>
   );
 }
-
