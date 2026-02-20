@@ -594,6 +594,7 @@ export default function App() {
 
   const textAreaRef = useRef(null);
   const scrollBottomRef = useRef(null);
+  const chatScrollRef = useRef(null);
   const recognitionRef = useRef(null);
   const silenceTimerRef = useRef(null);
   const utteranceRef = useRef(null);
@@ -634,6 +635,17 @@ export default function App() {
     () => [...messages].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()),
     [messages]
   );
+  const scrollChatToBottom = useCallback((behavior = 'smooth') => {
+    const container = chatScrollRef.current;
+    if (container) {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior,
+      });
+      return;
+    }
+    scrollBottomRef.current?.scrollIntoView({ behavior, block: 'end' });
+  }, []);
   const filteredSessions = useMemo(() => {
     const toTimestamp = (value) => {
       const parsed = new Date(value || '').getTime();
@@ -1031,8 +1043,12 @@ export default function App() {
 
   useEffect(() => {
     if (shareRouteId) return;
-    scrollBottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [loadingHistory, sending, sortedMessages, shareRouteId]);
+    const behavior = loadingHistory ? 'auto' : 'smooth';
+    const frame = window.requestAnimationFrame(() => {
+      scrollChatToBottom(behavior);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [loadingHistory, sending, sortedMessages, shareRouteId, scrollChatToBottom]);
 
   useEffect(() => {
     if (shareRouteId) return;
@@ -2265,6 +2281,9 @@ export default function App() {
         created_at: nowIso,
       },
     ]);
+    window.requestAnimationFrame(() => {
+      scrollChatToBottom('smooth');
+    });
     setDraft('');
     setAttachedImages([]);
     setComposerAttachmentMenuOpen(false);
@@ -2328,6 +2347,9 @@ export default function App() {
             created_at: new Date().toISOString(),
           },
         ]);
+        window.requestAnimationFrame(() => {
+          scrollChatToBottom('smooth');
+        });
       } else {
         setActiveSessionId(currentId);
         await refreshSessions(currentId);
@@ -2353,6 +2375,7 @@ export default function App() {
     effectivePersonalization,
     refreshSessions,
     sending,
+    scrollChatToBottom,
     sortedMessages,
     token,
   ]);
@@ -2863,7 +2886,10 @@ export default function App() {
             </div>
           )}
 
-          <section className={`chat-scroll-area min-h-0 flex-1 overflow-y-auto overflow-x-hidden ${isMobileLayout ? 'px-3 py-4 pb-36' : 'px-4 py-5 pb-32'}`}>
+          <section
+            ref={chatScrollRef}
+            className={`chat-scroll-area min-h-0 flex-1 overflow-y-auto overflow-x-hidden ${isMobileLayout ? 'px-3 py-4 pb-36' : 'px-4 py-5 pb-32'}`}
+          >
             <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-4">
               {loadingHistory && <div className="flex items-center gap-2 text-sm text-slate-300"><Loader2 size={15} className="animate-spin" />Loading conversation...</div>}
               {!sortedMessages.length && !loadingHistory && (

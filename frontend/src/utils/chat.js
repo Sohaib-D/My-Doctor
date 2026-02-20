@@ -137,24 +137,25 @@ function escapeHtml(value) {
 
 // ─── Inline rich text: bold + code — with cyan highlight for bold ──────────
 
-function formatInlineRichText(value) {
-  let text = escapeHtml(value);
+function applyInlineStyles(str) {
+  let s = escapeHtml(str);
+  s = s.replace(/<span style="color:[^>]+">([^<]+)<\/span>/g, '$1');
   // **bold** → warm teal highlight
-  text = text.replace(
+  s = s.replace(
     /\*\*(.+?)\*\*/g,
-    '<strong style="color:#5eead4;font-weight:700">$1</strong>'
+    '<strong style="color:#ffffff;font-weight:700">$1</strong>'
   );
   // __bold__ alternative
-  text = text.replace(
+  s = s.replace(
     /__(.+?)__/g,
-    '<strong style="color:#5eead4;font-weight:700">$1</strong>'
+    '<strong style="color:#ffffff;font-weight:700">$1</strong>'
   );
   // `code`
-  text = text.replace(
+  s = s.replace(
     /`([^`]+?)`/g,
-    '<code style="background:rgba(255,255,255,0.1);padding:1px 5px;border-radius:4px;font-family:monospace;font-size:0.9em">$1</code>'
+    '<code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;font-family:monospace;font-size:0.88em;color:#ffffff">$1</code>'
   );
-  return text;
+  return s;
 }
 
 // ─── Markdown preprocessor ─────────────────────────────────────────────────
@@ -169,32 +170,38 @@ function formatInlineRichText(value) {
  * so patterns like "## Heading - item1, - item2" need splitting before parsing.
  */
 function preprocessMarkdown(raw) {
-  let text = raw.replace(/\r\n/g, '\n');
+  let t = raw.replace(/\r\n/g, '\n');
 
   // 1. Ensure every ## heading starts on its own line
   //    "text. ## Heading" → "text.\n\n## Heading"
-  text = text.replace(/([^\n])\s*(#{1,4}\s+)/g, '$1\n\n$2');
+  t = t.replace(/([^\n])\s*(#{1,4}\s+)/g, '$1\n\n$2');
+
+  // 2. Split inline bullets after heading
+  t = t.replace(/(#{1,4}[^\n]+?)\s{1,3}-\s+/gm, '$1\n- ');
 
   // 2. Split bullets that follow a period, colon, or Devanagari danda
   //    "Heading: - item" → "Heading:\n- item"
   //    "sentence. - item" → "sentence.\n- item"
-  text = text.replace(/([.:\u0964])\s+-\s+/g, '$1\n- ');
+  t = t.replace(/([.:\u0964])\s*[-•]\s+/g, '$1\n- ');
 
   // 3. Split comma-separated bullets: ", - item" → "\n- item"
   //    This is the key fix — Groq sometimes writes "item1, - item2, - item3"
-  text = text.replace(/,\s+-\s+/g, '\n- ');
+  t = t.replace(/,\s*[-•]\s+/g, '\n- ');
 
   // 4. Consecutive inline bullets not yet separated: "word. - next" → "word.\n- next"
-  text = text.replace(/([a-zA-Z\u0600-\u06FF\u0900-\u097F]\.)\s+-\s+/g, '$1\n- ');
+  t = t.replace(/([a-zA-Z\u0600-\u06FF\u0900-\u097F]\.)\s*[-•]\s+/g, '$1\n- ');
 
   // 5. Remove trailing colon from heading lines (cleaner look)
   //    "## 🔬 Section:\n- item" → "## 🔬 Section\n- item"
-  text = text.replace(/(^#{1,4}\s+[^\n]+):\n/gm, '$1\n');
+  t = t.replace(/(^#{1,4}[^\n]+):\n/gm, '$1\n');
 
   // 6. Collapse 3+ newlines → 2
-  text = text.replace(/\n{3,}/g, '\n\n');
+  t = t.replace(/\n{3,}/g, '\n\n');
 
-  return text;
+  // 8. Ensure at least one blank line before bullets for spacing
+  t = t.replace(/(^- )/gm, '\n$1');
+
+  return t;
 }
 
 // ─── Main render function ──────────────────────────────────────────────────
@@ -211,122 +218,101 @@ function preprocessMarkdown(raw) {
  */
 export function renderMessageHtml(message) {
   const rawText = normalizeMessageText(message);
-  if (!rawText) {
-    return '';
-  }
+  if (!rawText) return '';
 
-  // Normalize flat markdown → proper newline-separated markdown
-  const raw = preprocessMarkdown(rawText);
-
-  const lines = raw.split('\n');
+  const processed = preprocessMarkdown(rawText);
+  const lines = processed.split('\n');
   const parts = [];
-  let paragraphLines = [];
-  let inUnorderedList = false;
-  let inOrderedList = false;
+  let pendingParaLines = [];
+  let inUl = false;
+  let inOl = false;
 
-  // ── Style constants ──────────────────────────────────────────────────────
-  // NOTE: text-transform is intentionally REMOVED from all heading styles.
-  // Uppercasing was making bullet content that merged into headings unreadable.
-  const STYLES = {
-    // Headings: warm teal accent instead of bright sky-blue, subtle background
-    h1: 'display:block;font-weight:700;font-size:13.5px;letter-spacing:0.03em;color:#5eead4;margin:14px 0 4px 0;padding:5px 11px;background:rgba(94,234,212,0.07);border-left:3px solid #5eead4;border-radius:0 6px 6px 0;line-height:1.4',
-    h2: 'display:block;font-weight:700;font-size:13px;letter-spacing:0.03em;color:#5eead4;margin:12px 0 4px 0;padding:4px 11px;background:rgba(94,234,212,0.07);border-left:3px solid #5eead4;border-radius:0 6px 6px 0;line-height:1.4',
-    h3: 'display:block;font-weight:700;font-size:12.5px;letter-spacing:0.02em;color:#6ee7b7;margin:10px 0 3px 0;padding:3px 9px;background:rgba(110,231,183,0.06);border-left:3px solid #6ee7b7;border-radius:0 5px 5px 0;line-height:1.4',
-    h4: 'display:block;font-weight:600;font-size:12px;color:#a7f3d0;margin:8px 0 3px 0;padding:2px 8px;border-left:2px solid #a7f3d0;border-radius:0 4px 4px 0',
-    ul: 'margin:4px 0 8px 0;padding-left:0;list-style:none',
-    ol: 'margin:4px 0 8px 0;padding-left:20px',
-    // Tighter line gaps — was 9px, now 4px
-    li: 'margin-bottom:4px;color:#cbd5e1;line-height:1.65;padding:2px 4px 2px 4px;border-radius:3px',
-    p:  'margin:4px 0;color:#cbd5e1;line-height:1.65',
-    spacer: 'height:4px',
-    hr: 'border:none;border-top:1px solid rgba(255,255,255,0.10);margin:10px 0',
+  const S = {
+    h1: 'display:block;font-size:14px;font-weight:700;color:#ffffff;margin:18px 0 6px 0;line-height:1.5',
+    h2: 'display:block;font-size:13.5px;font-weight:700;color:#ffffff;margin:16px 0 6px 0;line-height:1.5',
+    h3: 'display:block;font-size:13px;font-weight:600;color:#ffffff;margin:14px 0 5px 0;line-height:1.5',
+    h4: 'display:block;font-size:12.5px;font-weight:600;color:#ffffff;margin:12px 0 4px 0',
+    ul: 'margin:6px 0 12px 0;padding:0;list-style:none',
+    ol: 'margin:6px 0 12px 0;padding-left:18px',
+    li: 'margin-bottom:6px;color:#ffffff;line-height:1.7',
+    p:  'margin:6px 0;color:#ffffff;line-height:1.75',
+    hr: 'border:none;border-top:1px solid rgba(255,255,255,0.15);margin:14px 0',
   };
 
-  const flushParagraph = () => {
-    if (!paragraphLines.length) return;
-    parts.push(`<p style="${STYLES.p}">${paragraphLines.join('<br/>')}</p>`);
-    paragraphLines = [];
+  const flushPara = () => {
+    if (!pendingParaLines.length) return;
+    parts.push(`<div style="${S.p}">${pendingParaLines.join('<br/>')}</div>`);
+    pendingParaLines = [];
   };
 
   const closeLists = () => {
-    if (inUnorderedList) { parts.push('</ul>'); inUnorderedList = false; }
-    if (inOrderedList)   { parts.push('</ol>'); inOrderedList = false; }
+    if (inUl) { parts.push('</ul>'); inUl = false; }
+    if (inOl) { parts.push('</ol>'); inOl = false; }
   };
 
-  lines.forEach((line) => {
-    const trimmed = line.trim();
+  for (const line of lines) {
+    const t = line.trim();
 
-    // ── Blank line ──────────────────────────────────────────────────────
-    if (!trimmed) {
-      flushParagraph();
+    if (!t) {
+      flushPara();
       closeLists();
-      parts.push(`<div style="${STYLES.spacer}"></div>`);
-      return;
+      continue;
     }
 
-    // ── Horizontal rule ─────────────────────────────────────────────────
-    if (/^---+$/.test(trimmed)) {
-      flushParagraph();
+    if (/^---+$/.test(t)) {
+      flushPara();
       closeLists();
-      parts.push(`<hr style="${STYLES.hr}" />`);
-      return;
+      parts.push(`<hr style="${S.hr}"/>`);
+      continue;
     }
 
-    // ── Markdown headings: # / ## / ### / #### ─────────────────────────
-    const markdownHeading = trimmed.match(/^(#{1,4})\s+(.+)$/);
-    if (markdownHeading) {
-      flushParagraph();
+    const hm = t.match(/^(#{1,4})\s+(.+)$/);
+    if (hm) {
+      flushPara();
       closeLists();
-      const level = markdownHeading[1].length;
-      const headingText = formatInlineRichText(markdownHeading[2].trim());
-      const style = level === 1 ? STYLES.h1 : level === 2 ? STYLES.h2 : level === 3 ? STYLES.h3 : STYLES.h4;
-      parts.push(`<span style="${style}">${headingText}</span>`);
-      return;
+      const lvl = hm[1].length;
+      const htxt = applyInlineStyles(hm[2].trim());
+      const hs = lvl === 1 ? S.h1 : lvl === 2 ? S.h2 : lvl === 3 ? S.h3 : S.h4;
+      parts.push(`<div style="${hs}">${htxt}</div>`);
+      continue;
     }
 
-    // ── Simple "Label:" heading pattern ────────────────────────────────
-    const simpleLabelHeading = trimmed.match(/^([A-Za-z\u0600-\u06FF][^:]{1,48}):$/);
-    if (simpleLabelHeading) {
-      flushParagraph();
+    const lh = t.match(/^([A-Za-z\u0600-\u06FF][^:]{1,48}):$/);
+    if (lh) {
+      flushPara();
       closeLists();
-      parts.push(`<span style="${STYLES.h4}">${formatInlineRichText(simpleLabelHeading[1])}:</span>`);
-      return;
+      parts.push(`<div style="${S.h4}">${applyInlineStyles(lh[1])}:</div>`);
+      continue;
     }
 
-    // ── Unordered list item: -, *, • ───────────────────────────────────
-    const unorderedMatch = trimmed.match(/^[-*•]\s+(.+)$/);
-    if (unorderedMatch) {
-      flushParagraph();
-      if (inOrderedList) { parts.push('</ol>'); inOrderedList = false; }
-      if (!inUnorderedList) {
-        parts.push(`<ul style="${STYLES.ul}">`);
-        inUnorderedList = true;
-      }
+    const um = t.match(/^[-*•]\s+(.+)$/);
+    if (um) {
+      flushPara();
+      if (inOl) { parts.push('</ol>'); inOl = false; }
+      if (!inUl) { parts.push(`<ul style="${S.ul}">`); inUl = true; }
       parts.push(
-        `<li style="${STYLES.li}"><span style="color:#38bdf8;margin-right:6px">›</span>${formatInlineRichText(unorderedMatch[1].trim())}</li>`
+        `<li style="${S.li}">` +
+        `<span style="color:#ffffff;margin-right:6px;font-size:12px">›</span>` +
+        `${applyInlineStyles(um[1].trim())}` +
+        `</li>`
       );
-      return;
+      continue;
     }
 
-    // ── Ordered list item: 1. / 1) ─────────────────────────────────────
-    const orderedMatch = trimmed.match(/^\d+[\.)]\s+(.+)$/);
-    if (orderedMatch) {
-      flushParagraph();
-      if (inUnorderedList) { parts.push('</ul>'); inUnorderedList = false; }
-      if (!inOrderedList) {
-        parts.push(`<ol style="${STYLES.ol}">`);
-        inOrderedList = true;
-      }
-      parts.push(`<li style="${STYLES.li}">${formatInlineRichText(orderedMatch[1].trim())}</li>`);
-      return;
+    const om = t.match(/^\d+[\.)]\s+(.+)$/);
+    if (om) {
+      flushPara();
+      if (inUl) { parts.push('</ul>'); inUl = false; }
+      if (!inOl) { parts.push(`<ol style="${S.ol}">`); inOl = true; }
+      parts.push(`<li style="${S.li}">${applyInlineStyles(om[1].trim())}</li>`);
+      continue;
     }
 
-    // ── Plain paragraph line ────────────────────────────────────────────
     closeLists();
-    paragraphLines.push(formatInlineRichText(trimmed));
-  });
+    pendingParaLines.push(applyInlineStyles(t));
+  }
 
-  flushParagraph();
+  flushPara();
   closeLists();
   return parts.join('');
 }
