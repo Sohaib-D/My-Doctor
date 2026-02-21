@@ -9,17 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.config import get_settings
 from backend.database.session import init_db
-from backend.routers import (
-    auth_router,
-    chat_router,
-    health_router,
-    history_router,
-    personalization_router,
-    profile_router,
-    review_router,
-    settings_router,
-    tools_router,
-)
+from backend.routers import chat_router
 from backend.utils.logging import logger, setup_logging
 
 
@@ -46,15 +36,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(health_router)
-app.include_router(auth_router)
 app.include_router(chat_router)
-app.include_router(history_router)
-app.include_router(personalization_router)
-app.include_router(profile_router)
-app.include_router(review_router)
-app.include_router(settings_router)
-app.include_router(tools_router)
 
 
 @app.on_event("startup")

@@ -1,68 +1,30 @@
 ﻿from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
-
-from backend.schemas.personalization import ChatPersonalizationContext
-
-
-ChatMode = Literal["chat", "drug", "research", "who"]
-
-
-class StructuredMedicalResponse(BaseModel):
-    symptoms: str
-    possible_causes: str
-    advice: str
-    final_response: str = ""
-    urgency_level: Literal["low", "moderate", "high", "emergency"]
-    when_to_see_doctor: str
-    references: list[str] = Field(default_factory=list)
+from pydantic import BaseModel
 
 
 class ChatRequest(BaseModel):
-    message: str | None = None
-    voice_text: str | None = None
+    message: str
     session_id: str | None = None
-    language: Literal["en", "ur"] | None = None
-    mode: ChatMode = "chat"
-    profile: ProfileContext | None = None
-    personalization: ChatPersonalizationContext | None = None
-
-    @model_validator(mode="after")
-    def require_text_or_voice(self) -> "ChatRequest":
-        text = (self.message or "").strip()
-        voice = (self.voice_text or "").strip()
-        if not text and not voice:
-            raise ValueError("Either message or voice_text must be provided.")
-        return self
 
 
 class ChatResponse(BaseModel):
-    session_id: str
-    message_id: str
     response: str
-    structured: StructuredMedicalResponse
-    emergency: bool
-    language: Literal["en", "ur"]
-    mode: ChatMode = "chat"
-    tts_url: str | None = None
+    session_id: str | None = None
+    emergency: bool = False
     disclaimer: str = (
-        "This is educational information, not a diagnosis. "
-        "If symptoms are severe or worsening, seek in-person medical care."
+        "⚠️ This information is for educational purposes only and does not constitute medical advice. "
+        "Always consult a qualified healthcare professional for diagnosis and treatment."
     )
 
 
 class HistoryMessage(BaseModel):
-    id: str
-    session_id: str
-    role: Literal["user", "assistant"]
+    id: str | None = None
+    role: str
     text: str
-    structured: StructuredMedicalResponse | None = None
-    language: str
-    emergency: bool
-    created_at: datetime
+    created_at: datetime | None = None
 
 
 class HistoryResponse(BaseModel):

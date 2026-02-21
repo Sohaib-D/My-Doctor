@@ -1,10 +1,6 @@
 # Personal Doctor AI
 
-Production-style fullstack app with:
-- FastAPI backend (`/chat`, `/history`, `/sessions`, auth)
-- React + Tailwind frontend (served by FastAPI at `/`)
-- SQLite/PostgreSQL persistence with encrypted chat text
-- JWT authentication (email/password) plus optional Firebase login route
+Minimal FastAPI backend exposing a single `/chat` endpoint powered by Groq LLM. This repo mirrors an earlier project where replies came with medical context and formatting.
 
 ## One-command run
 
@@ -24,90 +20,28 @@ http://127.0.0.1:8000
 
 ```text
 .
-├─ main.py
+├─ main.py            # entrypoint (mounts chat router)
 ├─ backend/
-│  ├─ main.py
-│  ├─ config.py
-│  ├─ auth/
-│  │  ├─ deps.py
-│  │  ├─ jwt.py
-│  │  ├─ passwords.py
-│  │  └─ firebase_auth.py
-│  ├─ database/
+│  ├─ main.py         # FastAPI app definition
+│  ├─ config.py       # environment settings
+│  ├─ database/       # (unused by chat endpoint)
 │  │  ├─ models.py
 │  │  └─ session.py
 │  ├─ routers/
-│  │  ├─ auth.py
-│  │  ├─ chat.py
-│  │  ├─ history.py
-│  │  ├─ health.py
-│  │  └─ tools.py
+│  │  └─ chat.py      # only router in this workspace
 │  ├─ schemas/
-│  │  ├─ auth.py
-│  │  ├─ chat.py
-│  │  └─ tools.py
+│  │  └─ chat.py      # request/response models
 │  └─ services/
-│     ├─ chat_service.py
-│     ├─ groq_service.py
-│     ├─ pubmed_service.py
-│     └─ tts_service.py
-├─ frontend/
-│  ├─ dist/                 # built and served by FastAPI
-│  ├─ src/
-│  │  ├─ App.jsx
-│  │  ├─ main.jsx
-│  │  ├─ index.css
-│  │  └─ services/api.js
-│  ├─ index.html
-│  ├─ package.json
-│  ├─ tailwind.config.js
-│  └─ postcss.config.js
-├─ .env.example
-└─ requirements.txt
+│     └─ groq_service.py  # LLM integration
+├─ requirements.txt
 ```
 
 ## Backend API
 
-- `POST /auth/register`  
-  Register with email/password, returns JWT.
-- `POST /auth/login`  
-  Login with email/password, returns JWT.
-- `POST /login`  
-  Optional Firebase ID token login.
-- `GET /auth/me`  
-  Current user from bearer token.
 - `POST /chat`  
-  Save user message + generate assistant response.
-- `GET /history?session_id=<id>`  
-  Fetch ordered messages for a session.
-- `GET /sessions`  
-  Fetch chat sessions for sidebar.
+  Accepts `ChatRequest` JSON and returns a medical-style assistant response.
 
-## Database initialization snippet
 
-`backend/database/session.py` initializes schema on startup:
-
-```python
-def init_db() -> None:
-    from backend.database import models  # metadata registration
-    Base.metadata.create_all(bind=engine)
-```
-
-## Frontend UX features
-
-- ChatGPT-style layout:
-  - collapsible sidebar with sessions
-  - sticky chat header with stethoscope icon
-  - scrollable message stream
-  - sticky composer + footer disclaimer
-- Keyboard behavior:
-  - `Enter`: send message
-  - `Shift+Enter`: newline
-- Input actions:
-  - Dictate icon (`Mic`) for speech-to-text
-  - Use Voice icon (`Volume2` / `VolumeX`) for assistant readout
-- Footer disclaimer:
-  - `Not a substitute for professional medical advice. Sohaib Shahid All Rights Reserved.`
 
 ## Setup
 
@@ -140,12 +74,9 @@ uvicorn main:app --reload
 
 ## Environment variables
 
-See `.env.example` for full list. Critical variables:
+The only required environment variable is:
 
-- `SECRET_KEY`
-- `DATABASE_URL`
-- `GROQ_API_KEY`
-- `RATE_LIMIT_PER_MINUTE`
+- `GROQ_API_KEY` (used by `groq_service`).
 
 ## Security notes
 
