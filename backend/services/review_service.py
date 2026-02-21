@@ -7,6 +7,8 @@ import ssl
 
 from backend.config import Settings
 
+DEFAULT_FEEDBACK_RECIPIENT = "mesohaib5757@gmail.com"
+
 
 def _safe_line(value: str | None, fallback: str) -> str:
     if not value:
@@ -14,9 +16,9 @@ def _safe_line(value: str | None, fallback: str) -> str:
     return value.replace("\r", " ").replace("\n", " ").strip() or fallback
 
 
-def _review_email_body(
+def _feedback_email_body(
     *,
-    review: str,
+    feedback: str,
     user_email: str | None,
     user_name: str | None,
     timestamp: str | None,
@@ -24,23 +26,23 @@ def _review_email_body(
     at = timestamp or datetime.now(timezone.utc).isoformat()
     display_name = _safe_line(user_name, "Anonymous")
     display_email = _safe_line(user_email, "Not provided")
-    content = (review or "").strip()
+    content = (feedback or "").strip()
     return (
         "User:\n"
         f"{display_name}\n\n"
         "Email:\n"
         f"{display_email}\n\n"
-        "Review:\n"
+        "Feedback:\n"
         f"{content}\n\n"
         "Timestamp:\n"
         f"{at}\n"
     )
 
 
-def send_review_email(
+def send_feedback_email(
     *,
     settings: Settings,
-    review: str,
+    feedback: str,
     user_email: str | None,
     user_name: str | None,
     timestamp: str | None = None,
@@ -48,20 +50,20 @@ def send_review_email(
     mail_server = (settings.mail_server or "").strip()
     mail_username = (settings.mail_username or "").strip()
     mail_password = (settings.mail_password or "").strip()
-    mail_from = (settings.mail_from or "").strip()
-    mail_to = (settings.mail_to or "").strip()
+    mail_from = (settings.mail_from or settings.mail_username or "").strip()
+    mail_to = (settings.mail_to or DEFAULT_FEEDBACK_RECIPIENT).strip()
     mail_port = int(settings.mail_port or 587)
 
     if not all([mail_server, mail_username, mail_password, mail_from, mail_to]):
         raise RuntimeError("Mail service is not configured.")
 
     message = EmailMessage()
-    message["Subject"] = "New App Review Received"
+    message["Subject"] = "New App Feedback Received"
     message["From"] = mail_from
     message["To"] = mail_to
     message.set_content(
-        _review_email_body(
-            review=review,
+        _feedback_email_body(
+            feedback=feedback,
             user_email=user_email,
             user_name=user_name,
             timestamp=timestamp,
@@ -82,3 +84,19 @@ def send_review_email(
         smtp.login(mail_username, mail_password)
         smtp.send_message(message)
 
+
+def send_review_email(
+    *,
+    settings: Settings,
+    review: str,
+    user_email: str | None,
+    user_name: str | None,
+    timestamp: str | None = None,
+) -> None:
+    send_feedback_email(
+        settings=settings,
+        feedback=review,
+        user_email=user_email,
+        user_name=user_name,
+        timestamp=timestamp,
+    )

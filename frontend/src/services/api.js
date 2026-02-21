@@ -252,13 +252,16 @@ export const api = {
       allowUnauthenticated: true,
     });
   },
-  sendReview(payload, token) {
-    return request('/send-review', {
+  sendFeedback(payload, token) {
+    return request('/send-feedback', {
       method: 'POST',
       body: payload,
       token,
       allowUnauthenticated: true,
     });
+  },
+  sendReview(payload, token) {
+    return api.sendFeedback(payload, token);
   },
   getSharedConversation(shareId) {
     return request(`/share/${encodeURIComponent(shareId)}`);

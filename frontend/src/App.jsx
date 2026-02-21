@@ -8,15 +8,14 @@ import {
   ExternalLink,
   Globe2,
   HelpCircle,
-  Laptop,
   Loader2,
   LogOut,
   Menu,
   Mic,
   MessageCircle,
   Microscope,
-  Moon,
   MoreHorizontal,
+  Pencil,
   Pill,
   Pin,
   Plus,
@@ -27,7 +26,6 @@ import {
   SlidersHorizontal,
   Sparkles,
   Stethoscope,
-  Sun,
   Trash2,
   Upload,
   Volume2,
@@ -157,10 +155,15 @@ const CHAT_MODES = {
 };
 const CHAT_MODE_ORDER = ['chat', 'drug', 'research', 'who'];
 const DEFAULT_CHAT_MODE = 'chat';
+const CHAT_EMPTY_SUGGESTIONS = [
+  'What are early signs of diabetes?',
+  'How to lower blood pressure?',
+  'What is ibuprofen used for?',
+];
 
 function createDefaultAppSettings() {
   return {
-    appearance: 'system',
+    appearance: 'dark',
     language: 'en',
     voice_gender: 'female',
     voice_auto_detect: true,
@@ -174,7 +177,7 @@ function normalizeAppSettings(source) {
     return next;
   }
   const appearance = String(source.appearance || '').toLowerCase();
-  next.appearance = appearance === 'light' || appearance === 'dark' ? appearance : 'system';
+  next.appearance = appearance === 'light' || appearance === 'dark' ? appearance : 'dark';
   next.language = source.language === 'ur' ? 'ur' : 'en';
   next.voice_gender = 'female';
   next.voice_auto_detect = source.voice_auto_detect !== false;
@@ -399,9 +402,44 @@ function stripMarkdownForSpeech(text) {
     .replace(/^\s*[-*+]\s+/gm, '')
     .replace(/^\s*\d+[.)]\s+/gm, '')
     .replace(/^#+\s+/gm, '')
+    .replace(/[•▪▶►›]/g, ' ')
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\uFE0F]/gu, ' ')
     .replace(/[>*_~]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+const ROMAN_URDU_SPEECH_HINTS = new Set([
+  'aap', 'ap', 'mujhe', 'mujhy', 'mujh', 'kya', 'kia', 'kyun', 'kyu', 'hai',
+  'hain', 'ho', 'hoon', 'mera', 'meri', 'mere', 'dard', 'bukhar', 'khansi',
+  'saans', 'tabiyat', 'thakan', 'kamzori', 'dawai', 'ilaaj', 'masla', 'pet',
+  'pait', 'sar', 'sir', 'behtar', 'theek', 'arqam', 'agar', 'lekin', 'aur',
+]);
+
+function isLikelyRomanUrduForSpeech(text) {
+  const value = String(text || '').toLowerCase();
+  if (!value || containsUrdu(value)) {
+    return false;
+  }
+  const tokens = value.match(/[a-z']+/g) || [];
+  if (!tokens.length) {
+    return false;
+  }
+  const hits = tokens.reduce((count, token) => (ROMAN_URDU_SPEECH_HINTS.has(token) ? count + 1 : count), 0);
+  return hits >= 2;
+}
+
+function resolveSpeechVariant(text, fallbackLanguage = 'en') {
+  if (containsUrdu(text)) {
+    return 'ur';
+  }
+  if (isLikelyRomanUrduForSpeech(text)) {
+    return 'roman_urdu';
+  }
+  if (String(fallbackLanguage || '').toLowerCase() === 'ur') {
+    return 'ur';
+  }
+  return 'en';
 }
 
 function summarizeMessagesForMemory(messages, limit = 8) {
@@ -421,70 +459,7 @@ function summarizeMessagesForMemory(messages, limit = 8) {
 }
 
 function buildSpokenExplanation(message) {
-  const rawText = normalizeMessageText(message);
-  const cleaned = stripMarkdownForSpeech(rawText);
-  if (!cleaned) {
-    return '';
-  }
-
-  if (message?.role !== 'assistant') {
-    return cleaned;
-  }
-
-  const hasDirectAssistantText =
-    String(message?.text || '').trim().length > 0 ||
-    String(message?.structured?.final_response || '').trim().length > 0;
-  if (hasDirectAssistantText) {
-    return cleaned;
-  }
-
-  if (message?.structured && typeof message.structured === 'object') {
-    const parts = [];
-    if (message.structured.symptoms) {
-      parts.push(`Symptoms suggest ${stripMarkdownForSpeech(message.structured.symptoms)}.`);
-    }
-    if (message.structured.possible_causes) {
-      parts.push(`Possible causes include ${stripMarkdownForSpeech(message.structured.possible_causes)}.`);
-    }
-    if (message.structured.advice) {
-      parts.push(`Recommended advice is ${stripMarkdownForSpeech(message.structured.advice)}.`);
-    }
-    if (message.structured.urgency_level) {
-      parts.push(`Urgency level is ${stripMarkdownForSpeech(message.structured.urgency_level)}.`);
-    }
-    if (message.structured.when_to_see_doctor) {
-      parts.push(`See a doctor when ${stripMarkdownForSpeech(message.structured.when_to_see_doctor)}.`);
-    }
-    const structuredExplanation = parts.join(' ');
-    if (structuredExplanation) {
-      return `Here is a simple explanation. ${structuredExplanation}`;
-    }
-  }
-
-  const listItems = String(rawText || '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => /^[-*+]\s+/.test(line) || /^\d+[.)]\s+/.test(line))
-    .map((line) => stripMarkdownForSpeech(line.replace(/^[-*+]\s+|^\d+[.)]\s+/, '')))
-    .filter(Boolean)
-    .slice(0, 4);
-
-  if (listItems.length >= 2) {
-    const sequence = ['First', 'Then', 'Also', 'Finally'];
-    const explainedList = listItems
-      .map((item, index) => `${sequence[index] || 'Also'}, ${item}.`)
-      .join(' ');
-    return `Here is a simple explanation. ${explainedList}`;
-  }
-
-  const sentenceMatches = cleaned.match(/[^.!?]+[.!?]?/g) || [];
-  const summary = sentenceMatches
-    .map((sentence) => sentence.trim())
-    .filter(Boolean)
-    .slice(0, 4)
-    .join(' ');
-
-  return `Here is a simple explanation. ${summary || cleaned}`;
+  return stripMarkdownForSpeech(normalizeMessageText(message));
 }
 
 export default function App() {
@@ -568,6 +543,7 @@ export default function App() {
   const [autoVoice, setAutoVoice] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareError, setShareError] = useState('');
+  const [helpModalOpen, setHelpModalOpen] = useState(false);
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
   const [reviewText, setReviewText] = useState('');
   const [reviewError, setReviewError] = useState('');
@@ -621,7 +597,7 @@ export default function App() {
   );
   const reviewTrimmedLength = reviewText.trim().length;
   const reviewInlineError =
-    reviewError || (reviewText.length > 0 && reviewTrimmedLength < 10 ? 'Review must be at least 10 characters.' : '');
+    reviewError || (reviewText.length > 0 && reviewTrimmedLength < 10 ? 'Feedback must be at least 10 characters.' : '');
   const canSendMessage = Boolean(draft.trim()) || attachedImages.length > 0;
   const effectivePersonalization = useMemo(
     () => normalizePersonalization(personalization),
@@ -1214,18 +1190,19 @@ export default function App() {
 
       stopSpeaking();
       const utterance = new SpeechSynthesisUtterance(speechText);
+      const speechVariant = resolveSpeechVariant(speechText, appSettings.language);
       const configuredLang = appSettings.language === 'ur' ? 'ur-PK' : 'en-US';
       const lang = appSettings.voice_auto_detect
-        ? containsUrdu(speechText)
+        ? speechVariant === 'ur' || speechVariant === 'roman_urdu'
           ? 'ur-PK'
           : 'en-US'
         : configuredLang;
       utterance.lang = lang;
-      utterance.rate = lang.startsWith('ur') ? 0.88 : 0.93;
-      utterance.pitch = 1.0;
+      utterance.rate = lang.startsWith('ur') ? 0.9 : 0.95;
+      utterance.pitch = lang.startsWith('ur') ? 1.06 : 1.08;
       utterance.volume = 1.0;
 
-      const selectedVoice = selectFemaleVoice(voices, lang);
+      const selectedVoice = selectFemaleVoice(voices, lang, speechText);
       if (selectedVoice) utterance.voice = selectedVoice;
 
       utterance.onend = () => {
@@ -1648,13 +1625,6 @@ export default function App() {
     [authenticated, inGuestMode, updatePersonalizationField]
   );
 
-  const handleQuickAppearanceChange = useCallback(
-    (appearance) => {
-      handlePreferenceFieldChange('appearance', appearance);
-    },
-    [handlePreferenceFieldChange]
-  );
-
   const handleQuickLanguageChange = useCallback(
     (language) => {
       handlePreferenceFieldChange('language', language);
@@ -1980,6 +1950,15 @@ export default function App() {
     setUserMenuOpen(false);
   }, []);
 
+  const handleOpenHelpModal = useCallback(() => {
+    setHelpModalOpen(true);
+    setUserMenuOpen(false);
+  }, []);
+
+  const handleCloseHelpModal = useCallback(() => {
+    setHelpModalOpen(false);
+  }, []);
+
   const handleCloseReviewModal = useCallback(() => {
     if (reviewSending) {
       return;
@@ -1999,7 +1978,7 @@ export default function App() {
       event.preventDefault();
       const normalized = reviewText.trim();
       if (normalized.length < 10) {
-        setReviewError('Review must be at least 10 characters.');
+        setReviewError('Feedback must be at least 10 characters.');
         return;
       }
 
@@ -2009,11 +1988,11 @@ export default function App() {
 
       try {
         const payload = {
-          review: normalized,
+          feedback: normalized,
           user_email: user?.email || undefined,
           user_name: user?.full_name || (inGuestMode ? 'Guest User' : undefined),
         };
-        await api.sendReview(payload, token || undefined);
+        await api.sendFeedback(payload, token || undefined);
         setReviewSuccess('Thank you for your feedback!');
         setReviewText('');
         if (reviewCloseTimerRef.current) {
@@ -2026,7 +2005,7 @@ export default function App() {
           reviewCloseTimerRef.current = null;
         }, 1300);
       } catch (error) {
-        setReviewError(error?.message || 'Unable to send review right now. Please try again.');
+        setReviewError(error?.message || 'Unable to send feedback right now. Please try again.');
       } finally {
         setReviewSending(false);
       }
@@ -2419,6 +2398,35 @@ export default function App() {
     }
   }, [sortedMessages]);
 
+  const copyMessageText = useCallback(async (message) => {
+    const content = String(normalizeMessageText(message) || '').trim();
+    if (!content) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(content);
+      setChatError('');
+    } catch {
+      setChatError('Clipboard copy failed.');
+    }
+  }, []);
+
+  const editUserMessage = useCallback((message) => {
+    const content = String(normalizeMessageText(message) || '').trim();
+    if (!content) {
+      return;
+    }
+    setDraft(content);
+    setChatError('');
+    if (textAreaRef.current) {
+      textAreaRef.current.focus();
+      const cursor = content.length;
+      if (typeof textAreaRef.current.setSelectionRange === 'function') {
+        textAreaRef.current.setSelectionRange(cursor, cursor);
+      }
+    }
+  }, []);
+
   if (shareRouteId) {
     return <SharedConversationPage shareId={shareRouteId} />;
   }
@@ -2446,6 +2454,12 @@ export default function App() {
   const overlaySidebarWidth = `min(${SIDEBAR_OPEN_WIDTH}px, 88vw)`;
   const mainContentOffset = isMobileLayout ? 0 : inlineSidebarWidth;
   const ActiveModeIcon = activeModeConfig.icon;
+  const isEmptyChatState = !loadingHistory && !sortedMessages.length && activeMode === 'chat';
+  const typingIndicatorDotColor = isSidebarOpen ? '#7dd3fc' : '#a7f3d0';
+  const typingIndicatorClosedBorder = 'rgba(110, 231, 183, 0.30)';
+  const typingIndicatorClosedBg = 'rgba(110, 231, 183, 0.15)';
+  const typingIndicatorClosedIcon = '#a7f3d0';
+  const typingIndicatorClosedGlow = '0 2px 8px rgba(110, 231, 183, 0.20)';
 
   return (
     <div className="app-shell relative flex h-screen min-h-0 flex-col overflow-hidden bg-slatebg text-slate-100">
@@ -2463,7 +2477,7 @@ export default function App() {
           0%, 100% { opacity: 0.3; transform: translateY(0); }
           50% { opacity: 1; transform: translateY(-3px); }
         }
-        .dr-amna-dot { width: 7px; height: 7px; border-radius: 50%; background: #7dd3fc; display: inline-block; animation: drAmnaTyping 1.2s ease-in-out infinite; }
+        .dr-amna-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; animation: drAmnaTyping 1.2s ease-in-out infinite; }
         .dr-amna-dot:nth-child(2) { animation-delay: 0.18s; }
         .dr-amna-dot:nth-child(3) { animation-delay: 0.36s; }
       `}</style>
@@ -2488,14 +2502,38 @@ export default function App() {
             <div className={isSidebarOpen ? (isMobileLayout ? 'p-4' : 'p-3') : 'flex justify-center px-2 py-3'}>
               {!isSidebarOpen && (
                 <div className="w-full text-center">
+                  <div className="flex flex-col items-center gap-2">
                   <button
                     type="button"
                     onClick={toggleSidebar}
                     className="mobile-touch-target inline-flex h-10 w-10 items-center justify-center rounded-lg border border-emerald-300/30 bg-emerald-300/15 text-emerald-200 hover:bg-emerald-300/20 hover:text-emerald-100"
                     aria-label="Open sidebar"
+                    title="Open sidebar"
                   >
                     <Stethoscope size={18} />
                   </button>
+                    <button
+                      type="button"
+                      onClick={handleNewChat}
+                      className="mobile-touch-target inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/15 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white"
+                      aria-label="New chat"
+                      title="New chat"
+                    >
+                      <Plus size={17} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        openSidebar();
+                        setSearchChatsOpen(true);
+                      }}
+                      className="mobile-touch-target inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/15 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white"
+                      aria-label="Search chats"
+                      title="Search chats"
+                    >
+                      <Search size={17} />
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -2696,15 +2734,15 @@ export default function App() {
                   className="mobile-touch-target flex w-full items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm font-medium text-slate-100 hover:bg-white/10"
                 >
                   <HelpCircle size={15} />
-                  Give Review
+                  Give Feedback
                 </button>
               ) : (
                 <button
                   type="button"
                   onClick={handleOpenReviewModal}
                   className="mobile-touch-target mx-auto flex h-10 w-10 items-center justify-center rounded-lg border border-white/15 bg-white/5 text-slate-200 hover:bg-white/10"
-                  aria-label="Give Review"
-                  title="Give Review"
+                  aria-label="Give Feedback"
+                  title="Give Feedback"
                 >
                   <HelpCircle size={16} />
                 </button>
@@ -2745,7 +2783,7 @@ export default function App() {
                   <button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-white/10"><Sparkles size={15} />Upgrade plan</button>
                   <button type="button" onClick={handleOpenPersonalizationSettings} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-white/10"><SlidersHorizontal size={15} />Personalization</button>
                   <button type="button" onClick={handleOpenSettings} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-white/10"><Settings size={15} />Settings</button>
-                  <button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-white/10"><HelpCircle size={15} />Help</button>
+                  <button type="button" onClick={handleOpenHelpModal} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-white/10"><HelpCircle size={15} />Help</button>
                   <button type="button" onClick={inGuestMode ? handleExitGuestMode : logout} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-200 hover:bg-red-500/20"><LogOut size={15} />{inGuestMode ? 'Sign in' : 'Log out'}</button>
                 </div>
               )}
@@ -2781,55 +2819,13 @@ export default function App() {
               <div>
                 <h1 className="text-sm font-semibold text-white sm:text-base">{activeModeConfig.headerTitle}</h1>
                 <p className="text-xs text-slate-400">
-                  {activeModeConfig.headerSubtitle}
-                  {' • '}
-                  {inGuestMode ? 'Guest mode' : user?.email}
+                  {inGuestMode
+                    ? 'You are using Guest Mode. Chats will not be saved.'
+                    : `${activeModeConfig.headerSubtitle} • ${user?.email || 'Signed in'}`}
                 </p>
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <div className="inline-flex items-center gap-1 rounded-2xl border border-violet-300/25 bg-slate-900/85 p-1">
-                <button
-                  type="button"
-                  onClick={() => handleQuickAppearanceChange('light')}
-                  className={`mobile-touch-target inline-flex h-9 w-9 items-center justify-center rounded-xl transition ${
-                    appSettings.appearance === 'light'
-                      ? 'bg-violet-500/35 text-violet-50'
-                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                  }`}
-                  title="Light theme"
-                  aria-label="Set light theme"
-                >
-                  <Sun size={16} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickAppearanceChange('dark')}
-                  className={`mobile-touch-target inline-flex h-9 w-9 items-center justify-center rounded-xl transition ${
-                    appSettings.appearance === 'dark'
-                      ? 'bg-violet-500/35 text-violet-50'
-                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                  }`}
-                  title="Dark theme"
-                  aria-label="Set dark theme"
-                >
-                  <Moon size={16} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickAppearanceChange('system')}
-                  className={`mobile-touch-target inline-flex h-9 w-9 items-center justify-center rounded-xl transition ${
-                    appSettings.appearance === 'system'
-                      ? 'bg-violet-500/35 text-violet-50'
-                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                  }`}
-                  title="System theme"
-                  aria-label="Use system theme"
-                >
-                  <Laptop size={16} />
-                </button>
-              </div>
-
               <div className="inline-flex items-center gap-1 rounded-2xl border border-violet-300/25 bg-slate-900/85 p-1">
                 <button
                   type="button"
@@ -2880,65 +2876,151 @@ export default function App() {
             </div>
           </header>
 
-          {inGuestMode && (
-            <div className="shrink-0 border-b border-amber-400/30 bg-amber-500/10 px-4 py-2 text-center text-sm text-amber-100">
-              You are using Guest Mode. Chats will not be saved.
-            </div>
-          )}
-
           <section
             ref={chatScrollRef}
-            className={`chat-scroll-area min-h-0 flex-1 overflow-y-auto overflow-x-hidden ${isMobileLayout ? 'px-3 py-4 pb-36' : 'px-4 py-5 pb-32'}`}
+            className={`chat-scroll-area min-h-0 flex-1 overflow-y-auto overflow-x-hidden ${
+              isMobileLayout
+                ? isEmptyChatState
+                  ? 'px-3 py-2 pb-28'
+                  : 'px-3 py-4 pb-36'
+                : isEmptyChatState
+                  ? 'px-4 py-3 pb-24'
+                  : 'px-4 py-5 pb-32'
+            }`}
           >
             <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-4">
               {loadingHistory && <div className="flex items-center gap-2 text-sm text-slate-300"><Loader2 size={15} className="animate-spin" />Loading conversation...</div>}
               {!sortedMessages.length && !loadingHistory && (
-                <div className="space-y-3">
-                  {renderModeInterface}
-                  <div className="rounded-xl border border-dashed border-white/20 bg-white/5 p-6 text-center text-slate-300">
-                    Start a conversation. Enter sends message and Shift+Enter inserts a new line.
+                activeMode === 'chat' ? (
+                  <div className="relative mx-auto w-full max-w-5xl overflow-hidden rounded-3xl border border-white/10 bg-slate-950/20 px-4 py-5 sm:px-6 sm:py-7">
+                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_35%,rgba(167,243,208,0.08),transparent_55%)]" />
+                    <div className="relative mx-auto flex max-w-4xl flex-col items-center text-center">
+                      <div className="inline-flex h-[72px] w-[72px] items-center justify-center rounded-2xl border border-emerald-300/30 bg-emerald-300/15 text-emerald-200 shadow-[0_10px_24px_rgba(16,185,129,0.16)] sm:h-[80px] sm:w-[80px]">
+                        <Stethoscope size={30} strokeWidth={1.8} />
+                      </div>
+                      <h2 className="mt-4 text-2xl font-semibold tracking-tight text-violet-100 sm:mt-5 sm:text-3xl">
+                        How can I help you today?
+                      </h2>
+                      <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-300 sm:text-base">
+                        Get clear, evidence-based medical information. Ask about symptoms, medications,
+                        conditions, or anything health-related.
+                      </p>
+                      <div className="mt-5 grid w-full max-w-5xl gap-2 sm:grid-cols-3">
+                        {CHAT_EMPTY_SUGGESTIONS.map((suggestion) => (
+                          <button
+                            key={suggestion}
+                            type="button"
+                            onClick={() => handleModeSuggestion(suggestion)}
+                            className="mobile-touch-target rounded-full border border-white/15 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white sm:text-sm"
+                          >
+                            {suggestion}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="space-y-3">
+                    {renderModeInterface}
+                    <div className="rounded-xl border border-dashed border-white/20 bg-white/5 p-6 text-center text-slate-300">
+                      Start a conversation. Enter sends message and Shift+Enter inserts a new line.
+                    </div>
+                  </div>
+                )
               )}
 
-              {sortedMessages.map((message) => (
-                <div key={message.id} className={`message-bubble max-w-3xl rounded-2xl px-4 py-3 break-words ${message.role === 'user' ? 'ml-auto bg-emerald-500/15 text-emerald-100' : 'mr-auto border border-white/10 bg-slate-800/80 text-slate-100'}`}>
+              {sortedMessages.map((message) => {
+                const messageText = normalizeMessageText(message);
+                const isUrduScriptMessage = containsUrdu(messageText);
+                const urduScriptProps = isUrduScriptMessage
+                  ? {
+                      dir: 'ltr',
+                      style: {
+                        direction: 'ltr',
+                        textAlign: 'left',
+                        unicodeBidi: 'plaintext',
+                      },
+                    }
+                  : {};
+
+                return (
+                  <div key={message.id} className={`message-bubble max-w-3xl rounded-2xl px-4 py-3 break-words ${message.role === 'user' ? 'ml-auto bg-emerald-500/15 text-emerald-100' : 'mr-auto border border-white/10 bg-slate-800/80 text-slate-100'}`}>
                   {message.role === 'assistant' ? (
                     <div
                       className="message-rich text-sm leading-6"
+                      {...urduScriptProps}
                       dangerouslySetInnerHTML={{ __html: renderMessageHtml(message) }}
                     />
                   ) : (
-                    <p className="whitespace-pre-wrap text-sm leading-6">{normalizeMessageText(message)}</p>
+                    <p className="whitespace-pre-wrap text-sm leading-6" {...urduScriptProps}>{messageText}</p>
                   )}
                   <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
                     <span>{message.role === 'user' ? 'You' : 'Assistant'}</span>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => copyMessageText(message)}
+                        className="rounded-md p-1 transition hover:bg-white/10 hover:text-white"
+                        aria-label={`Copy ${message.role === 'user' ? 'your message' : 'assistant reply'}`}
+                        title="Copy"
+                      >
+                        <Copy size={13} />
+                      </button>
+                      {message.role === 'user' && (
+                        <button
+                          type="button"
+                          onClick={() => editUserMessage(message)}
+                          className="rounded-md p-1 transition hover:bg-white/10 hover:text-white"
+                          aria-label="Edit your message"
+                          title="Edit"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                      )}
                       {message.role === 'assistant' && (
-                        <button type="button" onClick={() => toggleMessageSpeech(message)} className={`rounded-md p-1 transition ${speakingMessageId === message.id ? 'bg-emerald-500/20 text-emerald-200' : 'hover:bg-white/10 hover:text-white'}`} aria-label={speakingMessageId === message.id ? 'Stop speaking' : 'Speak message'}>
+                        <button
+                          type="button"
+                          onClick={() => toggleMessageSpeech(message)}
+                          className={`rounded-md p-1 transition ${
+                            speakingMessageId === message.id
+                              ? 'bg-emerald-500/20 text-emerald-200'
+                              : 'hover:bg-white/10 hover:text-white'
+                          }`}
+                          aria-label={speakingMessageId === message.id ? 'Stop speaking' : 'Speak explanation'}
+                          title={speakingMessageId === message.id ? 'Stop speaking' : 'Speak explanation'}
+                        >
                           {speakingMessageId === message.id ? <VolumeX size={13} /> : <Volume2 size={13} />}
                         </button>
                       )}
-                      <span>{formatTime(message.created_at)}</span>
+                      <span className="ml-1">{formatTime(message.created_at)}</span>
                     </div>
                   </div>
                   {message.failed && <p className="mt-2 rounded-md bg-red-500/20 px-2 py-1 text-xs text-red-200">Failed to send. Please retry.</p>}
-                </div>
-              ))}
+                  </div>
+                );
+              })}
               {sending && (
                 <div className="message-bubble mr-auto max-w-3xl rounded-2xl border border-white/10 bg-slate-800/80 px-4 py-3 text-slate-100 break-words">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <div style={{
                       width: '32px', height: '32px', borderRadius: '50%',
-                      background: 'linear-gradient(135deg, #0ea5e9, #6366f1)',
+                      border: isSidebarOpen
+                        ? '1px solid rgba(125,211,252,0.4)'
+                        : `1px solid ${typingIndicatorClosedBorder}`,
+                      background: isSidebarOpen
+                        ? 'linear-gradient(135deg, #0ea5e9, #6366f1)'
+                        : typingIndicatorClosedBg,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontSize: '14px', flexShrink: 0,
-                      boxShadow: '0 2px 8px rgba(99,102,241,0.35)',
-                    }}>🩺</div>
+                      color: isSidebarOpen ? '#ecfeff' : typingIndicatorClosedIcon,
+                      boxShadow: isSidebarOpen
+                        ? '0 2px 8px rgba(99,102,241,0.35)'
+                        : typingIndicatorClosedGlow,
+                    }}><Stethoscope size={14} /></div>
                     <div style={{ display: 'flex', gap: '5px', alignItems: 'center', paddingTop: '2px' }}>
-                      <span className="dr-amna-dot"></span>
-                      <span className="dr-amna-dot"></span>
-                      <span className="dr-amna-dot"></span>
+                      <span className="dr-amna-dot" style={{ background: typingIndicatorDotColor }}></span>
+                      <span className="dr-amna-dot" style={{ background: typingIndicatorDotColor }}></span>
+                      <span className="dr-amna-dot" style={{ background: typingIndicatorDotColor }}></span>
                     </div>
                   </div>
                 </div>
@@ -3068,17 +3150,79 @@ export default function App() {
           </div>
         </main>
       </div>
+      {helpModalOpen && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+            onClick={handleCloseHelpModal}
+            aria-label="Close help modal"
+          />
+          <div className="relative z-10 w-full max-w-2xl rounded-2xl border border-white/15 bg-slate-900/95 p-4 sm:p-5 shadow-chat">
+            <p className="text-xs uppercase tracking-wider text-slate-400">Help</p>
+            <h2 className="mt-1 text-lg font-semibold text-white">How this chatbot works</h2>
+
+            <div className="mt-4 space-y-3 text-sm text-slate-200">
+              <section className="rounded-xl border border-white/10 bg-white/5 p-3">
+                <h3 className="text-sm font-semibold text-white">How it works</h3>
+                <p className="mt-1 leading-6 text-slate-300">
+                  Your message is sent to the medical assistant with your current chat history in the same session.
+                  This helps it remember previous symptoms and continue the same context.
+                </p>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-300">
+                  <li>Keeps conversation context inside the active session.</li>
+                  <li>Replies in your language style (English, Urdu script, or Roman Urdu).</li>
+                  <li>Highlights urgent situations when red-flag symptoms are detected.</li>
+                </ul>
+              </section>
+
+              <section className="rounded-xl border border-white/10 bg-white/5 p-3">
+                <h3 className="text-sm font-semibold text-white">Best way to ask</h3>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-300">
+                  <li>Start with your main symptom and since when it started.</li>
+                  <li>Mention severity, triggers, and what makes it better or worse.</li>
+                  <li>Add important history: allergies, chronic illness, and current medicines.</li>
+                  <li>Ask follow-up questions in the same chat to keep context intact.</li>
+                </ul>
+              </section>
+
+              <section className="rounded-xl border border-white/10 bg-white/5 p-3">
+                <h3 className="text-sm font-semibold text-white">Feature guide</h3>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-300">
+                  <li><strong>Chat:</strong> general symptom guidance and next-step triage.</li>
+                  <li><strong>Drug Info:</strong> medicine uses, side effects, and precautions.</li>
+                  <li><strong>Research:</strong> simplified medical evidence summaries.</li>
+                  <li><strong>WHO Stats:</strong> public-health indicators and trend insights.</li>
+                  <li><strong>Voice:</strong> tap speaker icon to read assistant replies aloud.</li>
+                  <li><strong>Edit/Copy:</strong> edit sent prompts and copy any message quickly.</li>
+                  <li><strong>Guest mode:</strong> chats are not saved after you leave.</li>
+                </ul>
+              </section>
+            </div>
+
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={handleCloseHelpModal}
+                className="mobile-touch-target rounded-lg border border-white/20 px-4 py-2 text-sm text-slate-200 hover:bg-white/10"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {reviewModalOpen && (
         <div className="absolute inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
           <button
             type="button"
             className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
             onClick={handleCloseReviewModal}
-            aria-label="Close review modal"
+            aria-label="Close feedback modal"
           />
           <div className="relative z-10 w-full max-w-lg rounded-2xl border border-white/15 bg-slate-900/95 p-4 sm:p-5 shadow-chat">
             <p className="text-xs uppercase tracking-wider text-slate-400">Feedback</p>
-            <h2 className="mt-1 text-lg font-semibold text-white">Send Your Review</h2>
+            <h2 className="mt-1 text-lg font-semibold text-white">Send Your Feedback</h2>
             <form className="mt-4 space-y-3" onSubmit={handleReviewSubmit}>
               <div>
                 <textarea
@@ -3622,3 +3766,4 @@ export default function App() {
     </div>
   );
 }
+

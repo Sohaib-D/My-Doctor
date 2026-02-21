@@ -1,11 +1,13 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+import asyncio
+import os
 import time
 from asyncio import Lock
 from uuid import uuid4
-import os
 
 import httpx
+from fastapi import HTTPException
 
 from backend.schemas.chat import ChatResponse
 
@@ -31,9 +33,13 @@ RESPONSE RULES:
 
 Language rule:
 - Reply in the same language the user uses.
+- Determine reply language from the latest user message in the current turn.
 - English -> English
 - Urdu script -> Urdu script
 - Roman Urdu -> Roman Urdu
+- Never switch language on your own. If user writes English or Roman Urdu, do not reply in Urdu script unless user explicitly asks.
+- For Urdu script replies: write pure Urdu script, keep wording naturally Urdu, and use proper Urdu punctuation (۔ ، ؟).
+- For Urdu script formatting: keep lines clean and left-aligned in output text.
 
 Safety:
 - Only include emergency guidance for true red-flag symptoms.
@@ -96,6 +102,10 @@ _HISTORY_LOCK = Lock()
 _SESSION_TTL_SECONDS = 60 * 60 * 24
 _MAX_MESSAGES_PER_SESSION = 120
 
+_MAX_GROQ_RETRIES = 2
+_BASE_RETRY_DELAY_SECONDS = 1.2
+_MAX_RETRY_DELAY_SECONDS = 8.0
+
 
 def detect_emergency(message: str) -> bool:
     message_lower = str(message or "").lower()
@@ -123,6 +133,43 @@ def _trim_history(history: list[dict[str, str]]) -> list[dict[str, str]]:
     keep_tail = max(_MAX_MESSAGES_PER_SESSION - len(_SYSTEM_MESSAGES), 0)
     tail = history[-keep_tail:] if keep_tail else []
     return _seed_history() + tail
+
+
+def _parse_retry_after_seconds(headers: httpx.Headers | None) -> float | None:
+    if not headers:
+        return None
+    value = str(headers.get("Retry-After", "")).strip()
+    if not value:
+        return None
+    try:
+        seconds = float(value)
+    except ValueError:
+        return None
+    if seconds < 0:
+        return None
+    return min(seconds, _MAX_RETRY_DELAY_SECONDS)
+
+
+async def _request_groq_with_retry(payload: dict, headers: dict[str, str]) -> dict:
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for attempt in range(_MAX_GROQ_RETRIES + 1):
+            response = await client.post(GROQ_API_URL, json=payload, headers=headers)
+            if response.status_code != 429:
+                response.raise_for_status()
+                return response.json()
+
+            if attempt >= _MAX_GROQ_RETRIES:
+                response.raise_for_status()
+
+            retry_after = _parse_retry_after_seconds(response.headers)
+            wait_seconds = (
+                retry_after
+                if retry_after is not None
+                else min(_BASE_RETRY_DELAY_SECONDS * (2**attempt), _MAX_RETRY_DELAY_SECONDS)
+            )
+            await asyncio.sleep(wait_seconds)
+
+    raise RuntimeError("Unexpected retry flow while calling Groq API.")
 
 
 async def _append_user_message(session_id: str | None, message: str) -> tuple[str, list[dict[str, str]]]:
@@ -179,10 +226,31 @@ async def chat_with_groq(message: str, session_id: str | None = None) -> ChatRes
         "Content-Type": "application/json",
     }
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(GROQ_API_URL, json=payload, headers=headers)
-        response.raise_for_status()
-        data = response.json()
+    try:
+        data = await _request_groq_with_retry(payload, headers)
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code if exc.response is not None else 502
+        if status_code == 429:
+            retry_after = _parse_retry_after_seconds(exc.response.headers if exc.response else None)
+            wait_seconds = max(1, int(round(retry_after))) if retry_after is not None else 6
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "Dr. Amna is receiving too many requests right now. "
+                    f"Please retry in about {wait_seconds} seconds."
+                ),
+                headers={"Retry-After": str(wait_seconds)},
+            ) from exc
+
+        raise HTTPException(
+            status_code=502,
+            detail="Upstream AI service error. Please try again shortly.",
+        ) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to reach the AI service right now. Please check your connection and try again.",
+        ) from exc
 
     ai_reply = str(data["choices"][0]["message"]["content"])
     await _append_assistant_message(active_session_id, ai_reply)

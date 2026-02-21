@@ -342,12 +342,74 @@ export function getInitials(user) {
   return segments.map((segment) => segment[0]?.toUpperCase() || '').join('') || 'U';
 }
 
-export function selectFemaleVoice(voices, lang) {
-  const languagePrefix = lang.toLowerCase().startsWith('ur') ? 'ur' : 'en';
-  const matching = voices.filter((voice) => voice.lang?.toLowerCase().startsWith(languagePrefix));
-  const femaleHints = ['female', 'woman', 'zira', 'aria', 'sara', 'emma', 'heera', 'nida'];
-  const female = matching.find((voice) =>
-    femaleHints.some((hint) => voice.name.toLowerCase().includes(hint))
+function isLikelyRomanUrduText(text) {
+  const value = String(text || '').toLowerCase();
+  if (!value || containsUrdu(value)) {
+    return false;
+  }
+  const tokens = value.match(/[a-z']+/g) || [];
+  if (!tokens.length) {
+    return false;
+  }
+  const markers = new Set([
+    'aap', 'ap', 'mujhe', 'mujhy', 'kya', 'kia', 'hai', 'hain', 'ho', 'hoon',
+    'dard', 'bukhar', 'khansi', 'saans', 'tabiyat', 'thakan', 'kamzori', 'dawai',
+    'ilaaj', 'masla', 'pet', 'pait', 'sar', 'sir', 'behtar', 'theek', 'aur',
+  ]);
+  const hits = tokens.reduce((count, token) => (markers.has(token) ? count + 1 : count), 0);
+  return hits >= 2;
+}
+
+export function selectFemaleVoice(voices, lang, text = '') {
+  const list = Array.isArray(voices) ? voices : [];
+  if (!list.length) {
+    return null;
+  }
+
+  const normalizedLang = String(lang || 'en-US').toLowerCase();
+  const wantsUrduFamily = normalizedLang.startsWith('ur') || isLikelyRomanUrduText(text);
+  const femaleHints = ['female', 'woman', 'zira', 'aria', 'sara', 'emma', 'heera', 'nida', 'neural'];
+  const southAsianHints = ['pakistan', 'pakistani', 'urdu', 'hindi', 'india', 'indian', 'asad', 'uzma'];
+
+  const femaleVoices = list.filter((voice) =>
+    femaleHints.some((hint) => String(voice.name || '').toLowerCase().includes(hint))
   );
-  return female || matching[0] || voices[0] || null;
+
+  const isPakistaniUrduVoice = (voice) => {
+    const name = String(voice.name || '').toLowerCase();
+    const voiceLang = String(voice.lang || '').toLowerCase();
+    return voiceLang.startsWith('ur-pk') || (voiceLang.startsWith('ur') && name.includes('pak'));
+  };
+
+  const isSouthAsianVoice = (voice) => {
+    const name = String(voice.name || '').toLowerCase();
+    const voiceLang = String(voice.lang || '').toLowerCase();
+    return (
+      voiceLang.startsWith('ur') ||
+      voiceLang.startsWith('hi') ||
+      voiceLang.startsWith('en-in') ||
+      southAsianHints.some((hint) => name.includes(hint))
+    );
+  };
+
+  if (wantsUrduFamily) {
+    const femalePakistani = femaleVoices.find((voice) => isPakistaniUrduVoice(voice));
+    if (femalePakistani) return femalePakistani;
+
+    const femaleSouthAsian = femaleVoices.find((voice) => isSouthAsianVoice(voice));
+    if (femaleSouthAsian) return femaleSouthAsian;
+
+    const anyPakistani = list.find((voice) => isPakistaniUrduVoice(voice));
+    if (anyPakistani) return anyPakistani;
+
+    const anySouthAsian = list.find((voice) => isSouthAsianVoice(voice));
+    if (anySouthAsian) return anySouthAsian;
+  }
+
+  const languagePrefix = normalizedLang.startsWith('ur') ? 'ur' : 'en';
+  const matching = list.filter((voice) => String(voice.lang || '').toLowerCase().startsWith(languagePrefix));
+  const femaleMatch = matching.find((voice) =>
+    femaleHints.some((hint) => String(voice.name || '').toLowerCase().includes(hint))
+  );
+  return femaleMatch || femaleVoices[0] || matching[0] || list[0] || null;
 }

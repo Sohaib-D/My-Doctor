@@ -110,5 +110,5 @@ def get_settings() -> Settings:
         mail_username=os.getenv("MAIL_USERNAME"),
         mail_password=os.getenv("MAIL_PASSWORD"),
         mail_from=os.getenv("MAIL_FROM"),
-        mail_to=os.getenv("MAIL_TO"),
+        mail_to=os.getenv("MAIL_TO", "mesohaib5757@gmail.com"),
     )

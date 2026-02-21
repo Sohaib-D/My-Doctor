@@ -288,9 +288,12 @@ html.theme-light [class*='bg-cyan-500/10'] {
 
 html.theme-light .medical-grid-overlay {
   background-image:
-    linear-gradient(rgba(148, 163, 184, 0.1) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 163, 184, 0.1) 1px, transparent 1px);
-  opacity: 0.24;
+    linear-gradient(rgba(148, 163, 184, 0.14) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.14) 1px, transparent 1px),
+    linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+  background-size: 120px 120px, 120px 120px, 40px 40px, 40px 40px;
+  opacity: 0.32;
 }
 
 html.theme-light .medical-vignette {
@@ -320,6 +323,16 @@ body {
 
 .chat-scroll-area {
   overscroll-behavior: contain;
+}
+
+/* Slightly darker chat surface while keeping 3D background visible. */
+html.dark .chat-scroll-area,
+html.theme-dark .chat-scroll-area {
+  background: linear-gradient(
+    180deg,
+    rgba(2, 6, 23, 0.48) 0%,
+    rgba(7, 16, 35, 0.4) 100%
+  );
 }
 
 .message-bubble {
@@ -423,10 +436,12 @@ html.theme-light *::-webkit-scrollbar-thumb:hover {
 
 .medical-grid-overlay {
   background-image:
-    linear-gradient(rgba(148, 163, 184, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
-  background-size: 44px 44px;
-  opacity: 0.2;
+    linear-gradient(rgba(129, 160, 223, 0.2) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(129, 160, 223, 0.2) 1px, transparent 1px),
+    linear-gradient(rgba(129, 160, 223, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(129, 160, 223, 0.1) 1px, transparent 1px);
+  background-size: 120px 120px, 120px 120px, 40px 40px, 40px 40px;
+  opacity: 0.34;
 }
 
 .medical-vignette {
@@ -805,7 +820,7 @@ html.theme-light *::-webkit-scrollbar-thumb:hover {
 
 @media (max-width: 900px) {
   .medical-grid-overlay {
-    opacity: 0.14;
+    opacity: 0.24;
   }
 }
 
