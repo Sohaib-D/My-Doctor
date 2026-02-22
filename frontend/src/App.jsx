@@ -6,8 +6,10 @@ import {
   ChevronUp,
   Copy,
   ExternalLink,
+  FileText,
   Globe2,
   HelpCircle,
+  Image as ImageIcon,
   Loader2,
   LogOut,
   Menu,
@@ -520,6 +522,16 @@ function toAuthMessage(error) {
   return rawMessage;
 }
 
+function createPendingVerificationLogin() {
+  return {
+    email: '',
+    password: '',
+    fullName: '',
+    loginToken: '',
+    maskedEmail: '',
+  };
+}
+
 function stripMarkdownForSpeech(text) {
   return String(text || '')
     .replace(/```[\s\S]*?```/g, ' ')
@@ -615,11 +627,7 @@ export default function App() {
   const [guestMode, setGuestMode] = useState(false);
   const [resendBusy, setResendBusy] = useState(false);
   const [showResendVerification, setShowResendVerification] = useState(false);
-  const [pendingVerificationLogin, setPendingVerificationLogin] = useState({
-    email: '',
-    password: '',
-    fullName: '',
-  });
+  const [pendingVerificationLogin, setPendingVerificationLogin] = useState(createPendingVerificationLogin);
 
   const [chatLanguage, setChatLanguage] = useState(() => readStoredAppSettings().language);
   const [activeMode, setActiveMode] = useState(DEFAULT_CHAT_MODE);
@@ -1143,31 +1151,24 @@ export default function App() {
   }, []);
 
   const completeOtpVerification = useCallback(
-    async ({ email, loginToken, maskedEmail = '' }) => {
+    async ({ email, loginToken, otp }) => {
       const normalizedEmail = (email || '').trim().toLowerCase();
       const normalizedLoginToken = (loginToken || '').trim();
-      if (!normalizedEmail || !normalizedLoginToken) {
-        return false;
-      }
-
-      const promptTarget = maskedEmail || normalizedEmail;
-      const otp = window.prompt(`Enter the OTP sent to ${promptTarget}:`);
-      if (!otp) {
-        setAuthInfo('OTP verification pending. You can use Resend OTP if needed.');
-        setShowResendVerification(true);
+      const normalizedOtp = String(otp || '').trim();
+      if (!normalizedEmail || !normalizedLoginToken || !normalizedOtp) {
         return false;
       }
 
       const payload = await api.verifyOtp({
         email: normalizedEmail,
         login_token: normalizedLoginToken,
-        otp: String(otp).trim(),
+        otp: normalizedOtp,
       });
       applyBackendSession(payload);
       setAuthError('');
       setAuthInfo('');
       setShowResendVerification(false);
-      setPendingVerificationLogin({ email: '', password: '', fullName: '' });
+      setPendingVerificationLogin(createPendingVerificationLogin());
       return true;
     },
     [applyBackendSession]
@@ -1544,15 +1545,14 @@ export default function App() {
   }, [startDictation, stopDictation]);
 
   const handleEmailSignup = useCallback(
-    async ({ email, password, confirmPassword, fullName }) => {
+    async ({ email, password, confirmPassword, fullName, otp }) => {
       setGuestMode(false);
       setAuthBusy(true);
       setAuthError('');
       setAuthInfo('');
-      setShowResendVerification(false);
-      setPendingVerificationLogin({ email: '', password: '', fullName: '' });
       const normalizedEmail = (email || '').trim().toLowerCase();
       const normalizedFullName = (fullName || '').trim();
+      const normalizedOtp = String(otp || '').trim();
       try {
         if (!EMAIL_PATTERN.test(normalizedEmail)) {
           throw new Error('Please enter a valid email address.');
@@ -1564,35 +1564,48 @@ export default function App() {
           throw new Error(PASSWORD_RULE_MESSAGE);
         }
 
+        if (normalizedOtp) {
+          const pendingEmail = (pendingVerificationLogin.email || '').trim().toLowerCase();
+          const pendingLoginToken = (pendingVerificationLogin.loginToken || '').trim();
+          if (!pendingLoginToken || pendingEmail !== normalizedEmail) {
+            throw new Error('Please request an OTP first, then enter it here to verify.');
+          }
+
+          await completeOtpVerification({
+            email: normalizedEmail,
+            loginToken: pendingLoginToken,
+            otp: normalizedOtp,
+          });
+          return;
+        }
+
         const payload = await api.signupWithEmail({
           email: normalizedEmail,
           password,
           full_name: normalizedFullName || undefined,
         });
 
+        const maskedEmail = payload?.masked_email || normalizedEmail;
         setPendingVerificationLogin({
           email: normalizedEmail,
           password,
           fullName: normalizedFullName,
-        });
-        setShowResendVerification(true);
-
-        const maskedEmail = payload?.masked_email || normalizedEmail;
-        const otpHint = payload?.otp ? ` OTP (dev): ${payload.otp}` : '';
-        setAuthInfo(`OTP sent to ${maskedEmail}.${otpHint}`);
-
-        await completeOtpVerification({
-          email: normalizedEmail,
           loginToken: payload?.login_token || '',
           maskedEmail,
         });
+        setShowResendVerification(true);
+
+        setAuthInfo('OTP sent successfully - check your spam folder.');
       } catch (error) {
+        if (normalizedOtp) {
+          setShowResendVerification(true);
+        }
         setAuthError(toAuthMessage(error));
       } finally {
         setAuthBusy(false);
       }
     },
-    [completeOtpVerification]
+    [completeOtpVerification, pendingVerificationLogin.email, pendingVerificationLogin.loginToken]
   );
 
   const handleEmailLogin = useCallback(
@@ -1602,7 +1615,7 @@ export default function App() {
       setAuthError('');
       setAuthInfo('');
       setShowResendVerification(false);
-      setPendingVerificationLogin({ email: '', password: '', fullName: '' });
+      setPendingVerificationLogin(createPendingVerificationLogin());
       const normalizedEmail = (email || '').trim().toLowerCase();
       try {
         if (!EMAIL_PATTERN.test(normalizedEmail)) {
@@ -1618,13 +1631,19 @@ export default function App() {
         const message = toAuthMessage(error);
         if (message.toLowerCase().includes('not verified')) {
           setShowResendVerification(true);
-          setPendingVerificationLogin({ email: normalizedEmail, password, fullName: '' });
+          setPendingVerificationLogin({
+            email: normalizedEmail,
+            password,
+            fullName: '',
+            loginToken: '',
+            maskedEmail: normalizedEmail,
+          });
           setAuthError('Email not verified. Use Resend OTP to receive a new code.');
           setAuthInfo('');
         } else {
           setAuthError(message);
           setShowResendVerification(false);
-          setPendingVerificationLogin({ email: '', password: '', fullName: '' });
+          setPendingVerificationLogin(createPendingVerificationLogin());
         }
       } finally {
         setAuthBusy(false);
@@ -1639,7 +1658,7 @@ export default function App() {
     setAuthError('');
     setAuthInfo('');
     setShowResendVerification(false);
-    setPendingVerificationLogin({ email: '', password: '', fullName: '' });
+    setPendingVerificationLogin(createPendingVerificationLogin());
     try {
       const googleIdToken = await requestGoogleIdToken();
       const backendSession = await api.loginWithGoogleToken(googleIdToken);
@@ -1676,10 +1695,11 @@ export default function App() {
         full_name: fullName || undefined,
       });
       const maskedEmail = payload?.masked_email || email;
-      const otpHint = payload?.otp ? ` OTP (dev): ${payload.otp}` : '';
-      setAuthInfo(`New OTP sent to ${maskedEmail}.${otpHint}`);
-      await completeOtpVerification({
+      setAuthInfo('OTP sent successfully - check your spam folder.');
+      setPendingVerificationLogin({
         email,
+        password,
+        fullName,
         loginToken: payload?.login_token || '',
         maskedEmail,
       });
@@ -1689,7 +1709,7 @@ export default function App() {
     } finally {
       setResendBusy(false);
     }
-  }, [completeOtpVerification, pendingVerificationLogin]);
+  }, [pendingVerificationLogin]);
 
   const handleAuthModeChange = useCallback((mode) => {
     setAuthMode(mode);
@@ -1698,7 +1718,7 @@ export default function App() {
     setAuthInfo('');
     setResendBusy(false);
     setShowResendVerification(false);
-    setPendingVerificationLogin({ email: '', password: '', fullName: '' });
+    setPendingVerificationLogin(createPendingVerificationLogin());
   }, []);
 
   const loadMedicalProfile = useCallback(
@@ -2063,7 +2083,7 @@ export default function App() {
     setAuthInfo('');
     setResendBusy(false);
     setShowResendVerification(false);
-    setPendingVerificationLogin({ email: '', password: '', fullName: '' });
+    setPendingVerificationLogin(createPendingVerificationLogin());
     setSettingsOpen(false);
     setModeMenuOpen(false);
     setGuestMode(true);
@@ -2128,7 +2148,7 @@ export default function App() {
     setAuthInfo('');
     setResendBusy(false);
     setShowResendVerification(false);
-    setPendingVerificationLogin({ email: '', password: '', fullName: '' });
+    setPendingVerificationLogin(createPendingVerificationLogin());
   }, [stopDictation, stopSpeaking]);
 
   const handleSelectSession = useCallback(

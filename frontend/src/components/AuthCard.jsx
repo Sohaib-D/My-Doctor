@@ -7,6 +7,7 @@ import { getPasswordStrength } from '../utils/chat';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+const adminPanelUrl = toApiUrl('/admin/login');
 
 function PasswordStrengthIndicator({ password }) {
   const strength = useMemo(() => getPasswordStrength(password), [password]);
@@ -43,6 +44,7 @@ export default function AuthCard({
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
+  const [otp, setOtp] = useState('');
 
   const passwordStrength = useMemo(() => getPasswordStrength(password), [password]);
   const isRegister = mode === 'register';
@@ -72,7 +74,7 @@ export default function AuthCard({
   const onSubmit = async (event) => {
     event.preventDefault();
     if (isRegister) {
-      await onEmailSignup({ email, password, confirmPassword, fullName });
+      await onEmailSignup({ email, password, confirmPassword, fullName, otp });
       return;
     }
     await onEmailLogin({ email, password });
@@ -166,6 +168,23 @@ export default function AuthCard({
               {info}
             </p>
           )}
+          {isRegister && (
+            <div>
+              <label className="mb-1 block text-sm text-slate-300" htmlFor="auth_otp">
+                OTP
+              </label>
+              <input
+                id="auth_otp"
+                type="text"
+                value={otp}
+                onChange={(event) => setOtp(event.target.value)}
+                className="w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none ring-emerald-400/30 placeholder:text-slate-500 focus:ring-2"
+                placeholder="Enter OTP"
+                autoComplete="one-time-code"
+                inputMode="numeric"
+              />
+            </div>
+          )}
           {showResendVerification && (
             <button
               type="button"
@@ -236,4 +255,3 @@ export default function AuthCard({
     </div>
   );
 }
-  const adminPanelUrl = toApiUrl('/admin/login');

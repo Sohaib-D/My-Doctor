@@ -215,11 +215,36 @@ def _login_page(error: str | None = None) -> str:
   <h1>Admin Login</h1>
   <p class="muted">Sign in with your admin Gmail and password.</p>
   {error_html}
-  <form method="post" action="/admin/login" class="form-grid">
-    <input type="email" name="email" placeholder="you@gmail.com" required />
-    <input type="password" name="password" placeholder="Password" required />
+  <form id="admin-login-form" method="post" action="/admin/login" class="form-grid" autocomplete="off">
+    <input type="text" name="admin_fake_username" autocomplete="username" tabindex="-1" aria-hidden="true" style="position:absolute;left:-9999px;opacity:0;width:1px;height:1px;" />
+    <input type="password" name="admin_fake_password" autocomplete="current-password" tabindex="-1" aria-hidden="true" style="position:absolute;left:-9999px;opacity:0;width:1px;height:1px;" />
+    <input id="admin-email" type="email" name="email" placeholder="you@gmail.com" autocomplete="off" autocapitalize="off" spellcheck="false" readonly onfocus="this.removeAttribute('readonly');" required />
+    <input id="admin-password" type="password" name="password" placeholder="Password" autocomplete="new-password" readonly onfocus="this.removeAttribute('readonly');" required />
     <button type="submit">Login</button>
   </form>
+  <script>
+    (function () {{
+      function clearAdminLoginFields() {{
+        const form = document.getElementById("admin-login-form");
+        const email = document.getElementById("admin-email");
+        const password = document.getElementById("admin-password");
+        if (form) {{
+          form.reset();
+        }}
+        if (email) {{
+          email.value = "";
+          email.setAttribute("readonly", "readonly");
+        }}
+        if (password) {{
+          password.value = "";
+          password.setAttribute("readonly", "readonly");
+        }}
+      }}
+
+      window.addEventListener("load", clearAdminLoginFields);
+      window.addEventListener("pageshow", clearAdminLoginFields);
+    }})();
+  </script>
 </div>"""
     return _html_page("Admin Login", body)
 
