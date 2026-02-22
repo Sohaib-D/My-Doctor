@@ -2,12 +2,21 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+class ChatAttachment(BaseModel):
+    name: str
+    mime_type: str | None = None
+    size: int | None = None
+    text_content: str | None = None
+    image_data_url: str | None = None
 
 
 class ChatRequest(BaseModel):
     message: str
     session_id: str | None = None
+    attachments: list[ChatAttachment] = Field(default_factory=list)
 
 
 class ChatResponse(BaseModel):

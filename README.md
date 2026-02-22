@@ -1,87 +1,104 @@
-# Personal Doctor AI
+# FastAPI Backend Deployment Guide (Render Free Tier)
 
-Minimal FastAPI backend exposing a single `/chat` endpoint powered by Groq LLM. This repo mirrors an earlier project where replies came with medical context and formatting.
+FastAPI backend with PostgreSQL, SendGrid email integration, signup verification, feedback API, static file serving, and health checks.
 
-## One-command run
+## Render Startup Command
 
-After dependencies are installed and frontend is built, run:
+Configured in `render.yaml`:
 
 ```bash
-uvicorn main:app --reload
+alembic upgrade head && uvicorn backend.main:app --host 0.0.0.0 --port $PORT
 ```
 
-Then open:
+## Deployment Checklist
 
-```text
-http://127.0.0.1:8000
-```
+1. Push this repository to GitHub.
+2. Create a new **Web Service** on Render from your repo.
+3. Confirm Render uses `render.yaml` from repo root.
+4. Add required environment variables in Render:
+   - `DATABASE_URL`
+   - `SECRET_KEY`
+   - `GOOGLE_CLIENT_ID`
+   - `SENDGRID_API_KEY`
+   - `FROM_EMAIL`
+   - `ADMIN_EMAIL`
+   - `ADMIN_PANEL_EMAIL`
+   - `ADMIN_PANEL_PASSWORD_HASH`
+   - `CORS_ORIGINS`
+5. Ensure `APP_ENV=production` and `DEBUG=false`.
+6. Verify health checks target `GET /health`.
+7. Confirm logs show migrations applied on startup (`alembic upgrade head`).
+8. Validate app is reachable and health endpoint returns:
+   - `{"status":"ok"}`
 
-## Project structure
+## Database Configuration
 
-```text
-.
-├─ main.py            # entrypoint (mounts chat router)
-├─ backend/
-│  ├─ main.py         # FastAPI app definition
-│  ├─ config.py       # environment settings
-│  ├─ database/       # (unused by chat endpoint)
-│  │  ├─ models.py
-│  │  └─ session.py
-│  ├─ routers/
-│  │  └─ chat.py      # only router in this workspace
-│  ├─ schemas/
-│  │  └─ chat.py      # request/response models
-│  └─ services/
-│     └─ groq_service.py  # LLM integration
-├─ requirements.txt
-```
+- Database connection is loaded from `.env` / environment via `DATABASE_URL`.
+- Config source: `backend/config.py`
+- SQLAlchemy engine source: `backend/database/session.py`
 
-## Backend API
+## Health Endpoints
 
-- `POST /chat`  
-  Accepts `ChatRequest` JSON and returns a medical-style assistant response.
+- `GET /health` (for Render uptime checks)
+- `GET /healthz` (secondary health check)
 
+## Static Files and Templates
 
+### Static files
 
-## Setup
+- Store static assets in repository root `static/` directory.
+- Files are served at `/static/...` by `StaticFiles` mount in `backend/main.py`.
+- Example:
+  - File path: `static/logo.png`
+  - URL: `/static/logo.png`
 
-1. Python dependencies
+### Templates
+
+- Store server-rendered HTML templates in `backend/templates/`.
+- Current project includes directory placeholder: `backend/templates/.gitkeep`.
+- If you add Jinja rendering later, point it to:
+  - `backend/templates`
+
+## Local Run
 
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
+alembic upgrade head
+uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-2. Environment
+## Admin Panel Credentials
+
+Set these in `.env` / Render:
+
+- `ADMIN_PANEL_EMAIL`
+- `ADMIN_PANEL_PASSWORD_HASH`
+
+Generate `ADMIN_PANEL_PASSWORD_HASH`:
 
 ```bash
-copy .env.example .env
+python -c "import bcrypt; print(bcrypt.hashpw('YourStrongPassword'.encode(), bcrypt.gensalt()).decode())"
 ```
 
-3. Frontend dependencies + build
+## Pre-Deploy Verification Script
 
-```bash
-npm --prefix frontend install
-npm --prefix frontend run build
+Run a full local verification before pushing:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\predeploy_check.ps1
 ```
 
-4. Run server
+Useful options:
 
-```bash
-uvicorn main:app --reload
+```powershell
+# Skip frontend build and HTTP checks
+powershell -ExecutionPolicy Bypass -File .\scripts\predeploy_check.ps1 -SkipFrontendBuild -SkipHttpChecks
+
+# Treat missing env vars as hard failures
+powershell -ExecutionPolicy Bypass -File .\scripts\predeploy_check.ps1 -StrictEnv
+
+# Check a different running backend URL
+powershell -ExecutionPolicy Bypass -File .\scripts\predeploy_check.ps1 -BaseUrl https://your-app.onrender.com
 ```
-
-## Environment variables
-
-The only required environment variable is:
-
-- `GROQ_API_KEY` (used by `groq_service`).
-
-## Security notes
-
-- Chat message text is encrypted at rest before database write.
-- JWT token validation is enforced on protected routes.
-- Passwords are hashed with `scrypt` before storage.
-- CORS is configurable via `CORS_ORIGINS`.
-

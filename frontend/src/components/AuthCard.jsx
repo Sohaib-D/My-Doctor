@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { ExternalLink, Loader2, Stethoscope } from 'lucide-react';
 
 import MedicalBackground from './MedicalBackground';
+import { toApiUrl } from '../services/api';
 import { getPasswordStrength } from '../utils/chat';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -173,7 +174,7 @@ export default function AuthCard({
               className="flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-400/40 bg-cyan-500/10 px-4 py-2.5 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-500/20 disabled:opacity-60"
             >
               {(busy || resendBusy) && <Loader2 size={16} className="animate-spin" />}
-              Resend verification
+              Resend OTP
             </button>
           )}
 
@@ -196,6 +197,14 @@ export default function AuthCard({
           <ExternalLink size={15} />
           Continue with Google
         </button>
+
+        <a
+          href={adminPanelUrl}
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-2.5 text-sm font-medium text-cyan-100 hover:bg-cyan-500/20"
+        >
+          <ExternalLink size={15} />
+          Open Admin Panel
+        </a>
 
         {isRegister ? (
           <button
@@ -227,3 +236,4 @@ export default function AuthCard({
     </div>
   );
 }
+  const adminPanelUrl = toApiUrl('/admin/login');

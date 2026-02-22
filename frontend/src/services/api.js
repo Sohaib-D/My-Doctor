@@ -48,6 +48,7 @@ function buildBaseCandidates() {
 }
 
 const API_BASES = buildBaseCandidates();
+const BASIC_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function buildUrl(base, path) {
   if (!base) {
@@ -139,22 +140,51 @@ async function request(path, { method = 'GET', body, token, signal, allowUnauthe
   throw new Error(`Unable to reach server. Tried ${tried}. Please check backend connectivity.`);
 }
 
+export function getPrimaryApiBase() {
+  return API_BASES[0] || '';
+}
+
+export function toApiUrl(path) {
+  return buildUrl(getPrimaryApiBase(), path);
+}
+
 export const api = {
-  loginWithFirebaseToken(firebaseIdToken) {
-    return request('/login', {
+  signupWithEmail(payload) {
+    return request('/auth/signup', {
       method: 'POST',
-      body: { firebase_id_token: firebaseIdToken },
+      body: payload,
+    });
+  },
+  verifyOtp(payload) {
+    return request('/auth/verify-otp', {
+      method: 'POST',
+      body: payload,
+    });
+  },
+  loginWithEmail(payload) {
+    return request('/auth/login', {
+      method: 'POST',
+      body: payload,
+    });
+  },
+  loginWithGoogleToken(idToken) {
+    return request('/auth/google', {
+      method: 'POST',
+      body: { id_token: idToken },
     });
   },
   me(token) {
     return request('/auth/me', { token, allowUnauthenticated: true });
   },
   sessions(token) {
-    return request('/sessions', { token, allowUnauthenticated: true });
+    return request('/sessions', { token, allowUnauthenticated: true }).catch(() => ({ sessions: [] }));
   },
   history(token, sessionId) {
     const query = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '';
-    return request(`/history${query}`, { token, allowUnauthenticated: true });
+    return request(`/history${query}`, { token, allowUnauthenticated: true }).catch(() => ({
+      session_id: sessionId || '',
+      messages: [],
+    }));
   },
   chat(payload, token) {
     return request('/chat', {
@@ -197,7 +227,7 @@ export const api = {
     });
   },
   getSettings(token) {
-    return request('/settings', { token, allowUnauthenticated: true });
+    return request('/settings', { token, allowUnauthenticated: true }).catch(() => ({}));
   },
   updateSettings(payload, token) {
     return request('/settings', {
@@ -205,10 +235,12 @@ export const api = {
       body: payload,
       token,
       allowUnauthenticated: true,
-    });
+    }).catch(() => payload || {});
   },
   getProfile(token) {
-    return request('/profile', { token, allowUnauthenticated: true });
+    return request('/profile', { token, allowUnauthenticated: true }).catch(() => {
+      throw new Error('Profile not found.');
+    });
   },
   createProfile(payload, token) {
     return request('/profile', {
@@ -216,7 +248,7 @@ export const api = {
       body: payload,
       token,
       allowUnauthenticated: true,
-    });
+    }).catch(() => payload || {});
   },
   updateProfile(payload, token) {
     return request('/profile', {
@@ -224,10 +256,12 @@ export const api = {
       body: payload,
       token,
       allowUnauthenticated: true,
-    });
+    }).catch(() => payload || {});
   },
   getPersonalization(token) {
-    return request('/personalization', { token, allowUnauthenticated: true });
+    return request('/personalization', { token, allowUnauthenticated: true }).catch(() => {
+      throw new Error('Personalization not found.');
+    });
   },
   createPersonalization(payload, token) {
     return request('/personalization', {
@@ -235,7 +269,7 @@ export const api = {
       body: payload,
       token,
       allowUnauthenticated: true,
-    });
+    }).catch(() => payload || {});
   },
   updatePersonalization(payload, token) {
     return request('/personalization', {
@@ -243,7 +277,7 @@ export const api = {
       body: payload,
       token,
       allowUnauthenticated: true,
-    });
+    }).catch(() => payload || {});
   },
   createShare(sessionId, token) {
     return request(`/sessions/${encodeURIComponent(sessionId)}/share`, {
@@ -253,9 +287,19 @@ export const api = {
     });
   },
   sendFeedback(payload, token) {
-    return request('/send-feedback', {
+    const userEmail = String(payload?.user_email || '')
+      .trim()
+      .toLowerCase();
+    const email = BASIC_EMAIL_PATTERN.test(userEmail) ? userEmail : 'guest@local.invalid';
+    const name = String(payload?.user_name || '').trim() || 'Guest User';
+    const message = String(payload?.feedback || '').trim();
+    return request('/feedback', {
       method: 'POST',
-      body: payload,
+      body: {
+        name,
+        email,
+        message,
+      },
       token,
       allowUnauthenticated: true,
     });

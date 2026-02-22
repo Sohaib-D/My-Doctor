@@ -1,32 +1,34 @@
-﻿services:
+services:
   - type: web
-    name: personal-doctor-backend
+    name: fastapi-auth-backend
     env: python
-    region: singapore
     buildCommand: |
       pip install --upgrade pip && \
       pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    startCommand: alembic upgrade head && uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
     envVars:
       - key: APP_ENV
         value: production
       - key: DEBUG
         value: "false"
-      - key: CORS_ORIGINS
-        sync: false
+      - key: PORT
+        value: "10000"
       - key: DATABASE_URL
         sync: false
       - key: SECRET_KEY
         sync: false
-      - key: APP_AES_KEY
+      - key: GOOGLE_CLIENT_ID
         sync: false
-      - key: GROQ_API_KEY
+      - key: SENDGRID_API_KEY
         sync: false
-      - key: NCBI_API_KEY
+      - key: FROM_EMAIL
         sync: false
-      - key: FIREBASE_PROJECT_ID
+      - key: ADMIN_EMAIL
         sync: false
-      - key: FIREBASE_PRIVATE_KEY
+      - key: ADMIN_PANEL_EMAIL
         sync: false
-      - key: FIREBASE_CLIENT_EMAIL
+      - key: ADMIN_PANEL_PASSWORD_HASH
+        sync: false
+      - key: CORS_ORIGINS
         sync: false

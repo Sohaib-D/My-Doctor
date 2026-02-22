@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 
 import AuthCard from './components/AuthCard';
+import DrAmnaCharacter from './components/DrAmnaCharacter';
 import MedicalBackground from './components/MedicalBackground';
 import ChatModeView from './components/modes/ChatModeView';
 import DrugInfoModeView from './components/modes/DrugInfoModeView';
@@ -49,15 +50,8 @@ import {
 } from './context/PersonalizationContext';
 import { api } from './services/api';
 import {
-  firebaseLogout,
-  getFirebaseIdToken,
-  getFirebaseUser,
-  loginWithEmailAndPassword,
-  loginWithGoogle,
-  resendVerificationEmail,
-  signupWithEmailAndPassword,
-  subscribeToIdTokenChanges,
-} from './services/firebase';
+  requestGoogleIdToken,
+} from './services/googleAuth';
 import {
   containsUrdu,
   decodeJwtExpiryMs,
@@ -83,6 +77,10 @@ const TABLET_MAX_WIDTH = 1199;
 const SILENCE_TIMEOUT_MS = 2500;
 const MAX_IMAGE_ATTACHMENTS = 4;
 const MAX_IMAGE_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024;
+const MAX_TEXT_ATTACHMENT_CHARS = 12000;
+const ATTACHMENT_PICKER_ACCEPT =
+  'image/*,.txt,.md,.csv,.json,.xml,.html,.htm,.log,.rtf,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx';
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
 const PASSWORD_RULE_MESSAGE =
@@ -102,6 +100,27 @@ const THEME_MODE_CLASS_DARK = 'dark';
 const SETTINGS_TAB_GENERAL = 'general';
 const SETTINGS_TAB_PERSONALIZATION = 'personalization';
 const SETTINGS_TAB_MEDICAL = 'medical';
+const TEXT_ATTACHMENT_EXTENSIONS = new Set([
+  'txt',
+  'md',
+  'csv',
+  'json',
+  'xml',
+  'html',
+  'htm',
+  'log',
+  'rtf',
+  'yaml',
+  'yml',
+  'ini',
+  'conf',
+]);
+const TEXT_ATTACHMENT_MIME_TYPES = new Set([
+  'application/json',
+  'application/xml',
+  'application/xhtml+xml',
+  'application/rtf',
+]);
 const CHAT_MODES = {
   chat: {
     id: 'chat',
@@ -155,11 +174,65 @@ const CHAT_MODES = {
 };
 const CHAT_MODE_ORDER = ['chat', 'drug', 'research', 'who'];
 const DEFAULT_CHAT_MODE = 'chat';
-const CHAT_EMPTY_SUGGESTIONS = [
-  'What are early signs of diabetes?',
-  'How to lower blood pressure?',
-  'What is ibuprofen used for?',
-];
+const MODE_TEXT_BY_LANGUAGE = {
+  en: {
+    chat: {
+      headerTitle: 'Personal Doctor AI',
+      headerSubtitle: 'Medical Chat',
+      placeholder: 'Ask anything...',
+    },
+    drug: {
+      headerTitle: 'Personal Doctor AI',
+      headerSubtitle: 'Drug Information',
+      placeholder: 'Enter drug name...',
+    },
+    research: {
+      headerTitle: 'Personal Doctor AI',
+      headerSubtitle: 'Clinical Research',
+      placeholder: 'Search medical research...',
+    },
+    who: {
+      headerTitle: 'Personal Doctor AI',
+      headerSubtitle: 'WHO Statistics',
+      placeholder: 'Search global health statistics...',
+    },
+  },
+  ur: {
+    chat: {
+      headerTitle: 'Personal Doctor AI',
+      headerSubtitle: 'طبی چیٹ',
+      placeholder: 'اپنا سوال لکھیں...',
+    },
+    drug: {
+      headerTitle: 'Personal Doctor AI',
+      headerSubtitle: 'ادویات کی معلومات',
+      placeholder: 'دوائی کا نام لکھیں...',
+    },
+    research: {
+      headerTitle: 'Personal Doctor AI',
+      headerSubtitle: 'طبی تحقیق',
+      placeholder: 'طبی تحقیق تلاش کریں...',
+    },
+    who: {
+      headerTitle: 'Personal Doctor AI',
+      headerSubtitle: 'عالمی صحت کے اعدادوشمار',
+      placeholder: 'عالمی صحت کے اعدادوشمار تلاش کریں...',
+    },
+  },
+};
+
+const CHAT_EMPTY_SUGGESTIONS_BY_LANGUAGE = {
+  en: [
+    'What are early signs of diabetes?',
+    'How to lower blood pressure?',
+    'What is ibuprofen used for?',
+  ],
+  ur: [
+    'ذیابیطس کی ابتدائی علامات کیا ہیں؟',
+    'بلڈ پریشر کم کرنے کے طریقے کیا ہیں؟',
+    'آئیبوپروفین کس لیے استعمال ہوتی ہے؟',
+  ],
+};
 
 function createDefaultAppSettings() {
   return {
@@ -305,6 +378,60 @@ function writeDailyImageUploadUsage(usage) {
     window.localStorage.setItem(DAILY_IMAGE_UPLOAD_USAGE_KEY, JSON.stringify(usage));
   } catch {
     // ignore localStorage write errors
+  }
+}
+
+function getFileExtension(name) {
+  const text = String(name || '');
+  const dot = text.lastIndexOf('.');
+  if (dot < 0 || dot === text.length - 1) {
+    return '';
+  }
+  return text.slice(dot + 1).toLowerCase();
+}
+
+function isImageAttachment(file) {
+  return String(file?.type || '').toLowerCase().startsWith('image/');
+}
+
+function isTextAttachment(file) {
+  const mime = String(file?.type || '').toLowerCase();
+  if (mime.startsWith('text/')) {
+    return true;
+  }
+  if (TEXT_ATTACHMENT_MIME_TYPES.has(mime)) {
+    return true;
+  }
+  const ext = getFileExtension(file?.name || '');
+  return TEXT_ATTACHMENT_EXTENSIONS.has(ext);
+}
+
+function normalizeAttachmentText(raw) {
+  return String(raw || '').replace(/\u0000/g, '').trim().slice(0, MAX_TEXT_ATTACHMENT_CHARS);
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    try {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error || new Error('Unable to read file.'));
+      reader.readAsDataURL(file);
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+async function extractAttachmentText(file) {
+  if (!isTextAttachment(file)) {
+    return '';
+  }
+  try {
+    const text = await file.text();
+    return normalizeAttachmentText(text);
+  } catch {
+    return '';
   }
 }
 
@@ -488,7 +615,11 @@ export default function App() {
   const [guestMode, setGuestMode] = useState(false);
   const [resendBusy, setResendBusy] = useState(false);
   const [showResendVerification, setShowResendVerification] = useState(false);
-  const [pendingVerificationLogin, setPendingVerificationLogin] = useState({ email: '', password: '' });
+  const [pendingVerificationLogin, setPendingVerificationLogin] = useState({
+    email: '',
+    password: '',
+    fullName: '',
+  });
 
   const [chatLanguage, setChatLanguage] = useState(() => readStoredAppSettings().language);
   const [activeMode, setActiveMode] = useState(DEFAULT_CHAT_MODE);
@@ -526,6 +657,7 @@ export default function App() {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [sending, setSending] = useState(false);
   const [chatError, setChatError] = useState('');
+  const [showScrollToLatest, setShowScrollToLatest] = useState(false);
 
   const [draft, setDraft] = useState('');
   const [draftsByMode, setDraftsByMode] = useState(() => ({
@@ -590,14 +722,134 @@ export default function App() {
   const authenticated = Boolean(token);
   const inGuestMode = guestMode && !authenticated;
   const isDesktopLayout = !isMobileLayout && !isTabletLayout;
-  const activeModeConfig = CHAT_MODES[normalizeChatMode(activeMode)] || CHAT_MODES[DEFAULT_CHAT_MODE];
+  const uiLanguage = appSettings.language === 'ur' ? 'ur' : 'en';
+  const isUrduUI = uiLanguage === 'ur';
+  const ui = useMemo(
+    () =>
+      isUrduUI
+        ? {
+            feedbackMinChars: 'فیڈبیک کم از کم 10 حروف پر مشتمل ہونا چاہیے۔',
+            feedbackThanks: 'آپ کے فیڈبیک کا شکریہ!',
+            feedbackSendError: 'اس وقت فیڈبیک نہیں بھیجا جا سکا۔ دوبارہ کوشش کریں۔',
+            searchConversations: 'گفتگو تلاش کریں...',
+            noChatsFound: 'کوئی چیٹ نہیں ملی۔',
+            noChatsYet: 'ابھی تک کوئی چیٹ نہیں ہے۔',
+            guestUser: 'مہمان صارف',
+            notSignedIn: 'سائن اِن نہیں',
+            guestModeNotice: 'آپ گیسٹ موڈ استعمال کر رہے ہیں۔ چیٹس محفوظ نہیں ہوں گی۔',
+            signedIn: 'سائن اِن',
+            loadingConversation: 'گفتگو لوڈ ہو رہی ہے...',
+            heroTitle: 'آج میں آپ کی کیسے مدد کر سکتی ہوں؟',
+            heroDescription:
+              'علامات، ادویات، بیماریوں اور صحت سے متعلق سوالات کے لیے واضح اور مستند طبی رہنمائی حاصل کریں۔',
+            startConversationHint: 'گفتگو شروع کریں۔ Enter سے پیغام بھیجیں اور Shift+Enter سے نئی سطر بنائیں۔',
+            youLabel: 'آپ',
+            assistantLabel: 'اسسٹنٹ',
+            failedToSend: 'پیغام نہیں بھیجا جا سکا۔ براہ کرم دوبارہ کوشش کریں۔',
+            listening: 'سن رہا ہے...',
+            processingSpeech: 'آواز کو پراسیس کیا جا رہا ہے...',
+            speaking: 'پڑھ رہا ہے...',
+            footerDisclaimer:
+              'یہ پیشہ ورانہ طبی مشورے کا متبادل نہیں ہے۔ © 2026 Sohaib Shahid. All Rights Reserved.',
+            helpLabel: 'مدد',
+            helpTitle: 'یہ چیٹ بوٹ کیسے کام کرتا ہے',
+            helpHowItWorks: 'کام کرنے کا طریقہ',
+            helpHowItWorksBody:
+              'آپ کا پیغام موجودہ سیشن کی چیٹ ہسٹری کے ساتھ میڈیکل اسسٹنٹ کو بھیجا جاتا ہے، جس سے پہلے بتائی گئی علامات یاد رہتی ہیں۔',
+            helpContext1: 'فعال سیشن میں گفتگو کا تسلسل برقرار رکھتا ہے۔',
+            helpContext2: 'آپ کی زبان کے انداز میں جواب دیتا ہے (انگریزی، اردو اسکرپٹ، یا رومن اردو)۔',
+            helpContext3: 'خطرناک علامات پر فوری توجہ کی ہدایت دیتا ہے۔',
+            helpBestWayTitle: 'بہتر سوال کیسے پوچھیں',
+            helpBest1: 'اپنی بنیادی علامت اور آغاز کا وقت لکھیں۔',
+            helpBest2: 'شدت، محرکات، اور بہتر/بدتر ہونے کی وجوہات بتائیں۔',
+            helpBest3: 'الرجی، دائمی بیماری اور موجودہ ادویات کا ذکر کریں۔',
+            helpBest4: 'اسی چیٹ میں فالو اَپ سوال کریں تاکہ سیاق برقرار رہے۔',
+            helpFeatureTitle: 'فیچر گائیڈ',
+            helpFeatureChat: 'Chat: علامات اور اگلے اقدامات کے لیے رہنمائی۔',
+            helpFeatureDrug: 'Drug Info: ادویات کے استعمال، اثرات اور احتیاطیں۔',
+            helpFeatureResearch: 'Research: طبی تحقیق کا آسان خلاصہ۔',
+            helpFeatureWho: 'WHO Stats: عالمی صحت کے اعدادوشمار اور رجحانات۔',
+            helpFeatureVoice: 'Voice: اسسٹنٹ کے جواب کو آواز میں سنیں۔',
+            helpFeatureEditCopy: 'Edit/Copy: پیغامات کو آسانی سے ایڈٹ اور کاپی کریں۔',
+            helpFeatureGuest: 'Guest mode: باہر جانے پر چیٹس محفوظ نہیں رہتیں۔',
+            feedbackHeading: 'فیڈبیک',
+            feedbackTitle: 'اپنا فیڈبیک بھیجیں',
+            feedbackPlaceholder: 'اپنا فیڈبیک لکھیں...',
+            feedbackMinHint: 'کم از کم 10 حروف',
+            feedbackLooksGood: 'درست ہے',
+          }
+        : {
+            feedbackMinChars: 'Feedback must be at least 10 characters.',
+            feedbackThanks: 'Thank you for your feedback!',
+            feedbackSendError: 'Unable to send feedback right now. Please try again.',
+            searchConversations: 'Search conversations...',
+            noChatsFound: 'No chats found.',
+            noChatsYet: 'No chats yet.',
+            guestUser: 'Guest User',
+            notSignedIn: 'Not signed in',
+            guestModeNotice: 'You are using Guest Mode. Chats will not be saved.',
+            signedIn: 'Signed in',
+            loadingConversation: 'Loading conversation...',
+            heroTitle: 'How can I help you today?',
+            heroDescription:
+              'Get clear, evidence-based medical information. Ask about symptoms, medications, conditions, or anything health-related.',
+            startConversationHint: 'Start a conversation. Enter sends message and Shift+Enter inserts a new line.',
+            youLabel: 'You',
+            assistantLabel: 'Assistant',
+            failedToSend: 'Failed to send. Please retry.',
+            listening: 'Listening...',
+            processingSpeech: 'Processing speech...',
+            speaking: 'Speaking...',
+            footerDisclaimer:
+              'Not a substitute for professional medical advice. © 2026 Sohaib Shahid. All Rights Reserved.',
+            helpLabel: 'Help',
+            helpTitle: 'How this chatbot works',
+            helpHowItWorks: 'How it works',
+            helpHowItWorksBody:
+              'Your message is sent to the medical assistant with your current chat history in the same session. This helps it remember previous symptoms and continue the same context.',
+            helpContext1: 'Keeps conversation context inside the active session.',
+            helpContext2: 'Replies in your language style (English, Urdu script, or Roman Urdu).',
+            helpContext3: 'Highlights urgent situations when red-flag symptoms are detected.',
+            helpBestWayTitle: 'Best way to ask',
+            helpBest1: 'Start with your main symptom and since when it started.',
+            helpBest2: 'Mention severity, triggers, and what makes it better or worse.',
+            helpBest3: 'Add important history: allergies, chronic illness, and current medicines.',
+            helpBest4: 'Ask follow-up questions in the same chat to keep context intact.',
+            helpFeatureTitle: 'Feature guide',
+            helpFeatureChat: 'Chat: general symptom guidance and next-step triage.',
+            helpFeatureDrug: 'Drug Info: medicine uses, side effects, and precautions.',
+            helpFeatureResearch: 'Research: simplified medical evidence summaries.',
+            helpFeatureWho: 'WHO Stats: public-health indicators and trend insights.',
+            helpFeatureVoice: 'Voice: tap speaker icon to read assistant replies aloud.',
+            helpFeatureEditCopy: 'Edit/Copy: edit sent prompts and copy any message quickly.',
+            helpFeatureGuest: 'Guest mode: chats are not saved after you leave.',
+            feedbackHeading: 'Feedback',
+            feedbackTitle: 'Send Your Feedback',
+            feedbackPlaceholder: 'Write your feedback...',
+            feedbackMinHint: 'Minimum 10 characters',
+            feedbackLooksGood: 'Looks good',
+          },
+    [isUrduUI]
+  );
+  const activeModeKey = normalizeChatMode(activeMode);
+  const activeModeBaseConfig = CHAT_MODES[activeModeKey] || CHAT_MODES[DEFAULT_CHAT_MODE];
+  const localizedModeText =
+    MODE_TEXT_BY_LANGUAGE[uiLanguage]?.[activeModeKey] || MODE_TEXT_BY_LANGUAGE.en[activeModeKey];
+  const activeModeConfig = {
+    ...activeModeBaseConfig,
+    headerTitle: localizedModeText?.headerTitle || activeModeBaseConfig.headerTitle,
+    headerSubtitle: localizedModeText?.headerSubtitle || activeModeBaseConfig.headerSubtitle,
+    placeholder: localizedModeText?.placeholder || activeModeBaseConfig.placeholder,
+  };
   const modeOptions = useMemo(
     () => CHAT_MODE_ORDER.map((mode) => CHAT_MODES[mode]).filter(Boolean),
     []
   );
+  const chatEmptySuggestions =
+    CHAT_EMPTY_SUGGESTIONS_BY_LANGUAGE[uiLanguage] || CHAT_EMPTY_SUGGESTIONS_BY_LANGUAGE.en;
   const reviewTrimmedLength = reviewText.trim().length;
   const reviewInlineError =
-    reviewError || (reviewText.length > 0 && reviewTrimmedLength < 10 ? 'Feedback must be at least 10 characters.' : '');
+    reviewError || (reviewText.length > 0 && reviewTrimmedLength < 10 ? ui.feedbackMinChars : '');
   const canSendMessage = Boolean(draft.trim()) || attachedImages.length > 0;
   const effectivePersonalization = useMemo(
     () => normalizePersonalization(personalization),
@@ -611,6 +863,18 @@ export default function App() {
     () => [...messages].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()),
     [messages]
   );
+  const updateScrollToLatestVisibility = useCallback(() => {
+    const container = chatScrollRef.current;
+    if (!container) {
+      setShowScrollToLatest(false);
+      return;
+    }
+    const distanceFromBottom = container.scrollHeight - (container.scrollTop + container.clientHeight);
+    setShowScrollToLatest(distanceFromBottom > 140);
+  }, []);
+  const handleChatScroll = useCallback(() => {
+    updateScrollToLatestVisibility();
+  }, [updateScrollToLatestVisibility]);
   const scrollChatToBottom = useCallback((behavior = 'smooth') => {
     const container = chatScrollRef.current;
     if (container) {
@@ -618,9 +882,11 @@ export default function App() {
         top: container.scrollHeight,
         behavior,
       });
+      setShowScrollToLatest(false);
       return;
     }
     scrollBottomRef.current?.scrollIntoView({ behavior, block: 'end' });
+    setShowScrollToLatest(false);
   }, []);
   const filteredSessions = useMemo(() => {
     const toTimestamp = (value) => {
@@ -760,6 +1026,7 @@ export default function App() {
     setComposerAttachmentMenuOpen(false);
     setActiveMode(DEFAULT_CHAT_MODE);
     setChatError('');
+    setShowScrollToLatest(false);
     setShareError('');
     setSessionMenuOpenId('');
     setSessionActionBusyId('');
@@ -860,11 +1127,6 @@ export default function App() {
   const logout = useCallback(async () => {
     stopSpeaking();
     stopDictation(true);
-    try {
-      await firebaseLogout();
-    } catch {
-      // ignore
-    }
     clearLocalSession();
     setGuestMode(false);
   }, [clearLocalSession, stopDictation, stopSpeaking]);
@@ -880,12 +1142,36 @@ export default function App() {
     localStorage.setItem(USER_KEY, JSON.stringify(payload.user));
   }, []);
 
-  const exchangeFirebaseForBackendToken = useCallback(async () => {
-    const firebaseToken = await getFirebaseIdToken(true);
-    const backendSession = await api.loginWithFirebaseToken(firebaseToken);
-    applyBackendSession(backendSession);
-    return backendSession;
-  }, [applyBackendSession]);
+  const completeOtpVerification = useCallback(
+    async ({ email, loginToken, maskedEmail = '' }) => {
+      const normalizedEmail = (email || '').trim().toLowerCase();
+      const normalizedLoginToken = (loginToken || '').trim();
+      if (!normalizedEmail || !normalizedLoginToken) {
+        return false;
+      }
+
+      const promptTarget = maskedEmail || normalizedEmail;
+      const otp = window.prompt(`Enter the OTP sent to ${promptTarget}:`);
+      if (!otp) {
+        setAuthInfo('OTP verification pending. You can use Resend OTP if needed.');
+        setShowResendVerification(true);
+        return false;
+      }
+
+      const payload = await api.verifyOtp({
+        email: normalizedEmail,
+        login_token: normalizedLoginToken,
+        otp: String(otp).trim(),
+      });
+      applyBackendSession(payload);
+      setAuthError('');
+      setAuthInfo('');
+      setShowResendVerification(false);
+      setPendingVerificationLogin({ email: '', password: '', fullName: '' });
+      return true;
+    },
+    [applyBackendSession]
+  );
 
   const loadHistory = useCallback(
     async (sessionId, authToken = token) => {
@@ -930,52 +1216,6 @@ export default function App() {
     },
     [token]
   );
-
-  useEffect(() => {
-    if (shareRouteId) {
-      return;
-    }
-
-    let cancelled = false;
-    const unsubscribe = subscribeToIdTokenChanges(async (firebaseUser) => {
-      if (cancelled) {
-        return;
-      }
-      if (!firebaseUser) {
-        clearLocalSession();
-        return;
-      }
-
-      const passwordProvider = firebaseUser.providerData.some(
-        (provider) => provider.providerId === 'password'
-      );
-      if (passwordProvider && !firebaseUser.emailVerified) {
-        setAuthError('Please verify your email before login.');
-        setAuthInfo('');
-        try {
-          await firebaseLogout();
-        } catch {
-          // ignore
-        }
-        clearLocalSession();
-        return;
-      }
-
-      try {
-        setAuthError('');
-        await exchangeFirebaseForBackendToken();
-      } catch (error) {
-        if (!cancelled) {
-          setAuthError(toAuthMessage(error));
-        }
-      }
-    });
-
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, [clearLocalSession, exchangeFirebaseForBackendToken, shareRouteId]);
 
   useEffect(() => {
     if (!authenticated || shareRouteId) {
@@ -1025,6 +1265,17 @@ export default function App() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [loadingHistory, sending, sortedMessages, shareRouteId, scrollChatToBottom]);
+
+  useEffect(() => {
+    if (shareRouteId) {
+      setShowScrollToLatest(false);
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      updateScrollToLatestVisibility();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [shareRouteId, sortedMessages, loadingHistory, updateScrollToLatestVisibility]);
 
   useEffect(() => {
     if (shareRouteId) return;
@@ -1148,27 +1399,6 @@ export default function App() {
     const timer = window.setTimeout(() => logout(), msUntilExpiry);
     return () => window.clearTimeout(timer);
   }, [logout, shareRouteId, token, tokenExpiryMs]);
-
-  useEffect(() => {
-    if (!token || !tokenExpiryMs || shareRouteId) return;
-    const msUntilRefresh = tokenExpiryMs - Date.now() - 60_000;
-    if (msUntilRefresh <= 0) {
-      const currentUser = getFirebaseUser();
-      if (currentUser) {
-        exchangeFirebaseForBackendToken().catch(() => logout());
-      }
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      const currentUser = getFirebaseUser();
-      if (!currentUser) {
-        logout();
-        return;
-      }
-      exchangeFirebaseForBackendToken().catch(() => logout());
-    }, msUntilRefresh);
-    return () => window.clearTimeout(timer);
-  }, [exchangeFirebaseForBackendToken, logout, shareRouteId, token, tokenExpiryMs]);
 
   useEffect(
     () => () => {
@@ -1313,34 +1543,57 @@ export default function App() {
     startDictation();
   }, [startDictation, stopDictation]);
 
-  const handleEmailSignup = useCallback(async ({ email, password, confirmPassword, fullName }) => {
-    setGuestMode(false);
-    setAuthBusy(true);
-    setAuthError('');
-    setAuthInfo('');
-    setShowResendVerification(false);
-    setPendingVerificationLogin({ email: '', password: '' });
-    const normalizedEmail = (email || '').trim();
-    try {
-      if (!EMAIL_PATTERN.test(normalizedEmail)) {
-        throw new Error('Please enter a valid email address.');
-      }
-      if (password !== confirmPassword) {
-        throw new Error('Passwords do not match.');
-      }
-      if (!PASSWORD_PATTERN.test(password)) {
-        throw new Error(PASSWORD_RULE_MESSAGE);
-      }
-      await signupWithEmailAndPassword(normalizedEmail, password, fullName);
+  const handleEmailSignup = useCallback(
+    async ({ email, password, confirmPassword, fullName }) => {
+      setGuestMode(false);
+      setAuthBusy(true);
       setAuthError('');
-      setAuthInfo('Verification email sent. Please check your inbox.');
-      setAuthMode('login');
-    } catch (error) {
-      setAuthError(toAuthMessage(error));
-    } finally {
-      setAuthBusy(false);
-    }
-  }, []);
+      setAuthInfo('');
+      setShowResendVerification(false);
+      setPendingVerificationLogin({ email: '', password: '', fullName: '' });
+      const normalizedEmail = (email || '').trim().toLowerCase();
+      const normalizedFullName = (fullName || '').trim();
+      try {
+        if (!EMAIL_PATTERN.test(normalizedEmail)) {
+          throw new Error('Please enter a valid email address.');
+        }
+        if (password !== confirmPassword) {
+          throw new Error('Passwords do not match.');
+        }
+        if (!PASSWORD_PATTERN.test(password)) {
+          throw new Error(PASSWORD_RULE_MESSAGE);
+        }
+
+        const payload = await api.signupWithEmail({
+          email: normalizedEmail,
+          password,
+          full_name: normalizedFullName || undefined,
+        });
+
+        setPendingVerificationLogin({
+          email: normalizedEmail,
+          password,
+          fullName: normalizedFullName,
+        });
+        setShowResendVerification(true);
+
+        const maskedEmail = payload?.masked_email || normalizedEmail;
+        const otpHint = payload?.otp ? ` OTP (dev): ${payload.otp}` : '';
+        setAuthInfo(`OTP sent to ${maskedEmail}.${otpHint}`);
+
+        await completeOtpVerification({
+          email: normalizedEmail,
+          loginToken: payload?.login_token || '',
+          maskedEmail,
+        });
+      } catch (error) {
+        setAuthError(toAuthMessage(error));
+      } finally {
+        setAuthBusy(false);
+      }
+    },
+    [completeOtpVerification]
+  );
 
   const handleEmailLogin = useCallback(
     async ({ email, password }) => {
@@ -1349,28 +1602,35 @@ export default function App() {
       setAuthError('');
       setAuthInfo('');
       setShowResendVerification(false);
-      setPendingVerificationLogin({ email: '', password: '' });
-      const normalizedEmail = (email || '').trim();
+      setPendingVerificationLogin({ email: '', password: '', fullName: '' });
+      const normalizedEmail = (email || '').trim().toLowerCase();
       try {
         if (!EMAIL_PATTERN.test(normalizedEmail)) {
           throw new Error('Please enter a valid email address.');
         }
-        await loginWithEmailAndPassword(normalizedEmail, password);
-        await exchangeFirebaseForBackendToken();
+
+        const backendSession = await api.loginWithEmail({
+          email: normalizedEmail,
+          password,
+        });
+        applyBackendSession(backendSession);
       } catch (error) {
-        setAuthError(toAuthMessage(error));
-        if (error?.code === 'auth/email-not-verified') {
+        const message = toAuthMessage(error);
+        if (message.toLowerCase().includes('not verified')) {
           setShowResendVerification(true);
-          setPendingVerificationLogin({ email: normalizedEmail, password });
+          setPendingVerificationLogin({ email: normalizedEmail, password, fullName: '' });
+          setAuthError('Email not verified. Use Resend OTP to receive a new code.');
+          setAuthInfo('');
         } else {
+          setAuthError(message);
           setShowResendVerification(false);
-          setPendingVerificationLogin({ email: '', password: '' });
+          setPendingVerificationLogin({ email: '', password: '', fullName: '' });
         }
       } finally {
         setAuthBusy(false);
       }
     },
-    [exchangeFirebaseForBackendToken]
+    [applyBackendSession]
   );
 
   const handleGoogleLogin = useCallback(async () => {
@@ -1379,27 +1639,29 @@ export default function App() {
     setAuthError('');
     setAuthInfo('');
     setShowResendVerification(false);
-    setPendingVerificationLogin({ email: '', password: '' });
+    setPendingVerificationLogin({ email: '', password: '', fullName: '' });
     try {
-      await loginWithGoogle();
-      await exchangeFirebaseForBackendToken();
+      const googleIdToken = await requestGoogleIdToken();
+      const backendSession = await api.loginWithGoogleToken(googleIdToken);
+      applyBackendSession(backendSession);
     } catch (error) {
       setAuthError(toAuthMessage(error));
     } finally {
       setAuthBusy(false);
     }
-  }, [exchangeFirebaseForBackendToken]);
+  }, [applyBackendSession]);
 
   const handleResendVerification = useCallback(async () => {
-    const email = pendingVerificationLogin.email;
+    const email = (pendingVerificationLogin.email || '').trim().toLowerCase();
     const password = pendingVerificationLogin.password;
+    const fullName = (pendingVerificationLogin.fullName || '').trim();
     if (!email || !password) {
-      setAuthError('Please login again to resend verification.');
+      setAuthError('Please login again to resend OTP.');
       setShowResendVerification(false);
       return;
     }
     const confirmed = window.confirm(
-      'Please check your Spam/Junk folder before requesting another email.'
+      'Please check your Spam/Junk folder before requesting another OTP email.'
     );
     if (!confirmed) {
       return;
@@ -1408,16 +1670,26 @@ export default function App() {
     setAuthError('');
     setAuthInfo('');
     try {
-      await resendVerificationEmail(email, password);
-      setAuthError('Please verify your email before login.');
-      setAuthInfo('Verification email sent. Please check your inbox.');
+      const payload = await api.signupWithEmail({
+        email,
+        password,
+        full_name: fullName || undefined,
+      });
+      const maskedEmail = payload?.masked_email || email;
+      const otpHint = payload?.otp ? ` OTP (dev): ${payload.otp}` : '';
+      setAuthInfo(`New OTP sent to ${maskedEmail}.${otpHint}`);
+      await completeOtpVerification({
+        email,
+        loginToken: payload?.login_token || '',
+        maskedEmail,
+      });
       setShowResendVerification(true);
     } catch (error) {
       setAuthError(toAuthMessage(error));
     } finally {
       setResendBusy(false);
     }
-  }, [pendingVerificationLogin]);
+  }, [completeOtpVerification, pendingVerificationLogin]);
 
   const handleAuthModeChange = useCallback((mode) => {
     setAuthMode(mode);
@@ -1426,7 +1698,7 @@ export default function App() {
     setAuthInfo('');
     setResendBusy(false);
     setShowResendVerification(false);
-    setPendingVerificationLogin({ email: '', password: '' });
+    setPendingVerificationLogin({ email: '', password: '', fullName: '' });
   }, []);
 
   const loadMedicalProfile = useCallback(
@@ -1523,7 +1795,7 @@ export default function App() {
           setHasBackendPersonalization(false);
           personalizationLastSyncedRef.current = '';
         } else {
-          setPersonalizationError(error?.message || 'Unable to load personalization.');
+          setPersonalizationError(error?.message || (isUrduUI ? 'پرسنلائزیشن لوڈ نہیں ہو سکی۔' : 'Unable to load personalization.'));
         }
       } finally {
         if (!cancelled) {
@@ -1537,7 +1809,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [authenticated, loadPersonalization, shareRouteId, token]);
+  }, [authenticated, isUrduUI, loadPersonalization, shareRouteId, token]);
 
   useEffect(() => {
     if (shareRouteId) {
@@ -1550,7 +1822,7 @@ export default function App() {
     if (!authenticated || !token || inGuestMode) {
       setPersonalizationSaving(false);
       setPersonalizationError('');
-      setPersonalizationInfo('Personalization saved on this device.');
+      setPersonalizationInfo(isUrduUI ? 'پرسنلائزیشن اس ڈیوائس پر محفوظ ہو گئی۔' : 'Personalization saved on this device.');
       return;
     }
 
@@ -1585,9 +1857,9 @@ export default function App() {
         replacePersonalization(normalized);
         setHasBackendPersonalization(true);
         personalizationLastSyncedRef.current = serializePersonalization(normalized);
-        setPersonalizationInfo('Personalization saved.');
+        setPersonalizationInfo(isUrduUI ? 'پرسنلائزیشن محفوظ ہو گئی۔' : 'Personalization saved.');
       } catch (error) {
-        setPersonalizationError(error?.message || 'Unable to save personalization.');
+        setPersonalizationError(error?.message || (isUrduUI ? 'پرسنلائزیشن محفوظ نہیں ہو سکی۔' : 'Unable to save personalization.'));
       } finally {
         setPersonalizationSaving(false);
       }
@@ -1604,6 +1876,7 @@ export default function App() {
     settingsOpen,
     shareRouteId,
     token,
+    isUrduUI,
   ]);
 
   const handlePreferenceFieldChange = useCallback((key, value) => {
@@ -1617,12 +1890,12 @@ export default function App() {
       updatePersonalizationField(key, value);
       setPersonalizationError('');
       if (!authenticated || inGuestMode) {
-        setPersonalizationInfo('Personalization saved on this device.');
+        setPersonalizationInfo(isUrduUI ? 'پرسنلائزیشن اس ڈیوائس پر محفوظ ہو گئی۔' : 'Personalization saved on this device.');
       } else {
         setPersonalizationInfo('');
       }
     },
-    [authenticated, inGuestMode, updatePersonalizationField]
+    [authenticated, inGuestMode, isUrduUI, updatePersonalizationField]
   );
 
   const handleQuickLanguageChange = useCallback(
@@ -1660,17 +1933,17 @@ export default function App() {
             localStorage.setItem(USER_KEY, JSON.stringify(nextUser));
             return nextUser;
           });
-          setPreferencesInfo('Settings saved.');
+          setPreferencesInfo(isUrduUI ? 'ترتیبات محفوظ ہو گئیں۔' : 'Settings saved.');
         } else {
-          setPreferencesInfo('Settings saved on this device.');
+          setPreferencesInfo(isUrduUI ? 'ترتیبات اس ڈیوائس پر محفوظ ہو گئیں۔' : 'Settings saved on this device.');
         }
       } catch (error) {
-        setPreferencesError(error?.message || 'Unable to save settings.');
+        setPreferencesError(error?.message || (isUrduUI ? 'ترتیبات محفوظ نہیں ہو سکیں۔' : 'Unable to save settings.'));
       } finally {
         setPreferencesSaving(false);
       }
     },
-    [appSettings, applyUserSettings, token]
+    [appSettings, applyUserSettings, isUrduUI, token]
   );
 
   const handleOpenSettings = useCallback(async () => {
@@ -1696,7 +1969,7 @@ export default function App() {
     try {
       await loadUserSettings(token);
     } catch (error) {
-      setPreferencesError(error?.message || 'Unable to load settings.');
+      setPreferencesError(error?.message || (isUrduUI ? 'ترتیبات لوڈ نہیں ہو سکیں۔' : 'Unable to load settings.'));
     } finally {
       setPreferencesBusy(false);
     }
@@ -1706,7 +1979,7 @@ export default function App() {
       if (isPersonalizationNotFoundError(error)) {
         setHasBackendPersonalization(false);
       } else {
-        setPersonalizationError(error?.message || 'Unable to load personalization.');
+        setPersonalizationError(error?.message || (isUrduUI ? 'پرسنلائزیشن لوڈ نہیں ہو سکی۔' : 'Unable to load personalization.'));
       }
     } finally {
       setPersonalizationBusy(false);
@@ -1718,12 +1991,12 @@ export default function App() {
         setHasProfile(false);
         setProfileForm(createEmptyMedicalProfile());
       } else {
-        setProfileError(error?.message || 'Unable to load profile.');
+        setProfileError(error?.message || (isUrduUI ? 'پروفائل لوڈ نہیں ہو سکا۔' : 'Unable to load profile.'));
       }
     } finally {
       setProfileBusy(false);
     }
-  }, [loadMedicalProfile, loadPersonalization, loadUserSettings, token]);
+  }, [isUrduUI, loadMedicalProfile, loadPersonalization, loadUserSettings, token]);
 
   const handleCloseSettings = useCallback(() => {
     setSettingsOpen(false);
@@ -1768,20 +2041,20 @@ export default function App() {
           await api.createProfile(payload, token);
           setHasProfile(true);
         }
-        setProfileInfo('Medical profile saved.');
+        setProfileInfo(isUrduUI ? 'میڈیکل پروفائل محفوظ ہو گیا۔' : 'Medical profile saved.');
       } catch (error) {
         if (!hasProfile && (error?.message || '').toLowerCase().includes('already exists')) {
           await api.updateProfile(payload, token);
           setHasProfile(true);
-          setProfileInfo('Medical profile saved.');
+          setProfileInfo(isUrduUI ? 'میڈیکل پروفائل محفوظ ہو گیا۔' : 'Medical profile saved.');
         } else {
-          setProfileError(error?.message || 'Unable to save profile.');
+          setProfileError(error?.message || (isUrduUI ? 'پروفائل محفوظ نہیں ہو سکا۔' : 'Unable to save profile.'));
         }
       } finally {
         setProfileSaving(false);
       }
     },
-    [hasProfile, profileForm, token]
+    [hasProfile, isUrduUI, profileForm, token]
   );
 
   const handleContinueAsGuest = useCallback(() => {
@@ -1790,7 +2063,7 @@ export default function App() {
     setAuthInfo('');
     setResendBusy(false);
     setShowResendVerification(false);
-    setPendingVerificationLogin({ email: '', password: '' });
+    setPendingVerificationLogin({ email: '', password: '', fullName: '' });
     setSettingsOpen(false);
     setModeMenuOpen(false);
     setGuestMode(true);
@@ -1855,7 +2128,7 @@ export default function App() {
     setAuthInfo('');
     setResendBusy(false);
     setShowResendVerification(false);
-    setPendingVerificationLogin({ email: '', password: '' });
+    setPendingVerificationLogin({ email: '', password: '', fullName: '' });
   }, [stopDictation, stopSpeaking]);
 
   const handleSelectSession = useCallback(
@@ -1978,7 +2251,7 @@ export default function App() {
       event.preventDefault();
       const normalized = reviewText.trim();
       if (normalized.length < 10) {
-        setReviewError('Feedback must be at least 10 characters.');
+        setReviewError(ui.feedbackMinChars);
         return;
       }
 
@@ -1993,7 +2266,7 @@ export default function App() {
           user_name: user?.full_name || (inGuestMode ? 'Guest User' : undefined),
         };
         await api.sendFeedback(payload, token || undefined);
-        setReviewSuccess('Thank you for your feedback!');
+        setReviewSuccess(ui.feedbackThanks);
         setReviewText('');
         if (reviewCloseTimerRef.current) {
           window.clearTimeout(reviewCloseTimerRef.current);
@@ -2005,12 +2278,12 @@ export default function App() {
           reviewCloseTimerRef.current = null;
         }, 1300);
       } catch (error) {
-        setReviewError(error?.message || 'Unable to send feedback right now. Please try again.');
+        setReviewError(error?.message || ui.feedbackSendError);
       } finally {
         setReviewSending(false);
       }
     },
-    [inGuestMode, reviewText, token, user?.email, user?.full_name]
+    [inGuestMode, reviewText, token, ui.feedbackMinChars, ui.feedbackSendError, ui.feedbackThanks, user?.email, user?.full_name]
   );
 
   const handleToggleSessionMenu = useCallback((sessionId) => {
@@ -2096,7 +2369,7 @@ export default function App() {
   );
 
   const addImageAttachments = useCallback(
-    (fileList) => {
+    async (fileList) => {
       const selectedFiles = Array.from(fileList || []);
       if (!selectedFiles.length) {
         return;
@@ -2106,33 +2379,19 @@ export default function App() {
       const currentKeys = new Set(current.map((item) => item.key));
       const next = [...current];
       let skippedItems = false;
-      let skippedByLimit = false;
+      let skippedByDailyImageLimit = false;
+      let skippedByReadError = false;
+      let skippedByUnsupportedType = false;
       const usage = readDailyImageUploadUsage();
       const usageField = inGuestMode ? 'guest' : 'user';
-      const dailyLimit = inGuestMode ? GUEST_DAILY_IMAGE_UPLOAD_LIMIT : USER_DAILY_IMAGE_UPLOAD_LIMIT;
-      const remainingUploads = Math.max(0, dailyLimit - Number(usage[usageField] || 0));
-      let acceptedCount = 0;
-
-      if (remainingUploads <= 0) {
-        setChatError(
-          inGuestMode
-            ? `Guest image limit reached (${GUEST_DAILY_IMAGE_UPLOAD_LIMIT}/day). Create an account to upload up to ${USER_DAILY_IMAGE_UPLOAD_LIMIT} images per day.`
-            : `Daily image limit reached (${USER_DAILY_IMAGE_UPLOAD_LIMIT}/day). Try again tomorrow.`
-        );
-        return;
-      }
+      const dailyImageLimit = inGuestMode ? GUEST_DAILY_IMAGE_UPLOAD_LIMIT : USER_DAILY_IMAGE_UPLOAD_LIMIT;
+      let remainingImageUploads = Math.max(0, dailyImageLimit - Number(usage[usageField] || 0));
+      let acceptedImageCount = 0;
 
       for (const file of selectedFiles) {
         if (!file || typeof file !== 'object') {
           skippedItems = true;
-          continue;
-        }
-        if (!String(file.type || '').startsWith('image/')) {
-          skippedItems = true;
-          continue;
-        }
-        if (Number(file.size || 0) > MAX_IMAGE_ATTACHMENT_SIZE_BYTES) {
-          skippedItems = true;
+          skippedByUnsupportedType = true;
           continue;
         }
 
@@ -2145,24 +2404,52 @@ export default function App() {
           skippedItems = true;
           continue;
         }
-        if (acceptedCount >= remainingUploads) {
+
+        const isImage = isImageAttachment(file);
+        const maxSize = isImage ? MAX_IMAGE_ATTACHMENT_SIZE_BYTES : MAX_FILE_ATTACHMENT_SIZE_BYTES;
+        if (Number(file.size || 0) > maxSize) {
           skippedItems = true;
-          skippedByLimit = true;
           continue;
         }
 
-        currentKeys.add(key);
-        next.push({
+        if (isImage && remainingImageUploads <= 0) {
+          skippedItems = true;
+          skippedByDailyImageLimit = true;
+          continue;
+        }
+
+        const item = {
           id: `${key}-${Math.random().toString(36).slice(2, 8)}`,
           key,
           name: file.name,
-          size: file.size,
-        });
-        acceptedCount += 1;
+          size: Number(file.size || 0),
+          mimeType: String(file.type || '').toLowerCase() || 'application/octet-stream',
+          kind: isImage ? 'image' : 'file',
+          textContent: '',
+          imageDataUrl: '',
+        };
+
+        if (isImage) {
+          try {
+            item.imageDataUrl = await readFileAsDataUrl(file);
+            acceptedImageCount += 1;
+            remainingImageUploads -= 1;
+          } catch {
+            skippedItems = true;
+            skippedByReadError = true;
+            continue;
+          }
+        } else {
+          const extractedText = await extractAttachmentText(file);
+          item.textContent = extractedText;
+        }
+
+        currentKeys.add(key);
+        next.push(item);
       }
 
       if (next.length === current.length) {
-        if (skippedByLimit) {
+        if (skippedByDailyImageLimit) {
           setChatError(
             inGuestMode
               ? `Guest image limit reached (${GUEST_DAILY_IMAGE_UPLOAD_LIMIT}/day). Create an account to upload up to ${USER_DAILY_IMAGE_UPLOAD_LIMIT} images per day.`
@@ -2170,31 +2457,41 @@ export default function App() {
           );
           return;
         }
-        setChatError('Only image files up to 10MB are supported.');
+        setChatError(
+          `Only supported photos/files up to 10MB are allowed. You can attach up to ${MAX_IMAGE_ATTACHMENTS} items.`
+        );
         return;
       }
 
       setAttachedImages(next);
-      if (acceptedCount > 0) {
+      if (acceptedImageCount > 0) {
         const nextUsage = {
           ...usage,
-          [usageField]: Number(usage[usageField] || 0) + acceptedCount,
+          [usageField]: Number(usage[usageField] || 0) + acceptedImageCount,
         };
         writeDailyImageUploadUsage(nextUsage);
       }
+
       if (skippedItems) {
-        if (skippedByLimit) {
-          const remainingAfterAdd = Math.max(0, remainingUploads - acceptedCount);
-          setChatError(
+        const reasons = [];
+        if (skippedByDailyImageLimit) {
+          const remainingAfterAdd = Math.max(0, remainingImageUploads);
+          reasons.push(
             inGuestMode
-              ? `Some files were skipped. Guest limit is ${GUEST_DAILY_IMAGE_UPLOAD_LIMIT}/day. ${remainingAfterAdd} upload${remainingAfterAdd === 1 ? '' : 's'} left today.`
-              : `Some files were skipped. Daily limit is ${USER_DAILY_IMAGE_UPLOAD_LIMIT}/day. ${remainingAfterAdd} upload${remainingAfterAdd === 1 ? '' : 's'} left today.`
-          );
-        } else {
-          setChatError(
-            `Some files were skipped. You can attach up to ${MAX_IMAGE_ATTACHMENTS} images and each must be under 10MB.`
+              ? `Guest image limit is ${GUEST_DAILY_IMAGE_UPLOAD_LIMIT}/day (${remainingAfterAdd} left today).`
+              : `Daily image limit is ${USER_DAILY_IMAGE_UPLOAD_LIMIT}/day (${remainingAfterAdd} left today).`
           );
         }
+        if (skippedByUnsupportedType) {
+          reasons.push('Unsupported file types were skipped.');
+        }
+        if (skippedByReadError) {
+          reasons.push('Some files could not be read.');
+        }
+        if (!reasons.length) {
+          reasons.push(`Max ${MAX_IMAGE_ATTACHMENTS} attachments allowed.`);
+        }
+        setChatError(`Some attachments were skipped. ${reasons.join(' ')}`);
       } else {
         setChatError('');
       }
@@ -2203,8 +2500,8 @@ export default function App() {
   );
 
   const handleUploadImageSelect = useCallback(
-    (event) => {
-      addImageAttachments(event.target.files);
+    async (event) => {
+      await addImageAttachments(event.target.files);
       event.target.value = '';
       setComposerAttachmentMenuOpen(false);
     },
@@ -2212,8 +2509,8 @@ export default function App() {
   );
 
   const handleCaptureImageSelect = useCallback(
-    (event) => {
-      addImageAttachments(event.target.files);
+    async (event) => {
+      await addImageAttachments(event.target.files);
       event.target.value = '';
       setComposerAttachmentMenuOpen(false);
     },
@@ -2240,11 +2537,18 @@ export default function App() {
 
   const handleSendMessage = useCallback(async () => {
     const attachmentText = attachedImages.length
-      ? `Attached image${attachedImages.length > 1 ? 's' : ''}:\n${attachedImages
-          .map((item, index) => `${index + 1}. ${item.name}`)
+      ? `Attached photo/file${attachedImages.length > 1 ? 's' : ''}:\n${attachedImages
+          .map((item, index) => `${index + 1}. ${item.name}${item.kind === 'image' ? ' (photo)' : ' (file)'}`)
           .join('\n')}`
       : '';
     const text = [draft.trim(), attachmentText].filter(Boolean).join('\n\n');
+    const requestAttachments = attachedImages.map((item) => ({
+      name: item.name,
+      mime_type: item.mimeType || '',
+      size: Number(item.size || 0),
+      text_content: item.kind === 'file' ? item.textContent || '' : '',
+      image_data_url: item.kind === 'image' ? item.imageDataUrl || '' : '',
+    }));
     if (!text || sending || (!token && !inGuestMode)) return;
 
     const temporaryId = `pending-${Date.now()}`;
@@ -2270,7 +2574,8 @@ export default function App() {
     setChatError('');
 
     try {
-      const language = containsUrdu(text) ? 'ur' : chatLanguage;
+      const languageProbe = draft.trim() || text;
+      const language = containsUrdu(languageProbe) ? 'ur' : chatLanguage;
       let profilePayload = undefined;
       const personalizationPayload = normalizePersonalization(effectivePersonalization);
       personalizationPayload.recent_chat_summaries =
@@ -2302,6 +2607,7 @@ export default function App() {
           session_id: activeSessionId || undefined,
           language,
           mode: normalizeChatMode(activeMode),
+          attachments: requestAttachments,
           profile: profilePayload,
           personalization: personalizationPayload,
         },
@@ -2455,11 +2761,9 @@ export default function App() {
   const mainContentOffset = isMobileLayout ? 0 : inlineSidebarWidth;
   const ActiveModeIcon = activeModeConfig.icon;
   const isEmptyChatState = !loadingHistory && !sortedMessages.length && activeMode === 'chat';
-  const typingIndicatorDotColor = isSidebarOpen ? '#7dd3fc' : '#a7f3d0';
-  const typingIndicatorClosedBorder = 'rgba(110, 231, 183, 0.30)';
-  const typingIndicatorClosedBg = 'rgba(110, 231, 183, 0.15)';
-  const typingIndicatorClosedIcon = '#a7f3d0';
-  const typingIndicatorClosedGlow = '0 2px 8px rgba(110, 231, 183, 0.20)';
+  const typingIndicatorDotColor = '#a7f3d0';
+  const typingIndicatorLogoIcon = '#a7f3d0';
+  const typingIndicatorLogoGlow = 'drop-shadow(0 2px 6px rgba(16,185,129,0.35))';
 
   return (
     <div className="app-shell relative flex h-screen min-h-0 flex-col overflow-hidden bg-slatebg text-slate-100">
@@ -2630,7 +2934,7 @@ export default function App() {
                       value={chatSearch}
                       onChange={(event) => setChatSearch(event.target.value)}
                       className="mt-2 w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-cyan-400/30 focus:ring-2"
-                      placeholder="Search conversations..."
+                      placeholder={ui.searchConversations}
                     />
                   )}
                 </div>
@@ -2721,7 +3025,7 @@ export default function App() {
                   </div>
                 ))}
                 {!filteredSessions.length && (
-                  <p className="px-2 pt-2 text-sm text-slate-400">{chatSearch.trim() ? 'No chats found.' : 'No chats yet.'}</p>
+                  <p className="px-2 pt-2 text-sm text-slate-400">{chatSearch.trim() ? ui.noChatsFound : ui.noChatsYet}</p>
                 )}
               </div>
             )}
@@ -2771,8 +3075,8 @@ export default function App() {
                 {isSidebarOpen && (
                   <>
                     <div className="min-w-0 flex-1 text-left">
-                      <p className="truncate text-sm font-medium text-slate-100">{inGuestMode ? 'Guest User' : user?.full_name || 'User'}</p>
-                      <p className="truncate text-xs text-slate-400">{inGuestMode ? 'Not signed in' : user?.email}</p>
+                      <p className="truncate text-sm font-medium text-slate-100">{inGuestMode ? ui.guestUser : user?.full_name || 'User'}</p>
+                      <p className="truncate text-xs text-slate-400">{inGuestMode ? ui.notSignedIn : user?.email}</p>
                     </div>
                     {userMenuOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
                   </>
@@ -2820,8 +3124,8 @@ export default function App() {
                 <h1 className="text-sm font-semibold text-white sm:text-base">{activeModeConfig.headerTitle}</h1>
                 <p className="text-xs text-slate-400">
                   {inGuestMode
-                    ? 'You are using Guest Mode. Chats will not be saved.'
-                    : `${activeModeConfig.headerSubtitle} • ${user?.email || 'Signed in'}`}
+                    ? ui.guestModeNotice
+                    : `${activeModeConfig.headerSubtitle} • ${user?.email || ui.signedIn}`}
                 </p>
               </div>
             </div>
@@ -2878,6 +3182,7 @@ export default function App() {
 
           <section
             ref={chatScrollRef}
+            onScroll={handleChatScroll}
             className={`chat-scroll-area min-h-0 flex-1 overflow-y-auto overflow-x-hidden ${
               isMobileLayout
                 ? isEmptyChatState
@@ -2889,7 +3194,7 @@ export default function App() {
             }`}
           >
             <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-4">
-              {loadingHistory && <div className="flex items-center gap-2 text-sm text-slate-300"><Loader2 size={15} className="animate-spin" />Loading conversation...</div>}
+              {loadingHistory && <div className="flex items-center gap-2 text-sm text-slate-300"><Loader2 size={15} className="animate-spin" />{ui.loadingConversation}</div>}
               {!sortedMessages.length && !loadingHistory && (
                 activeMode === 'chat' ? (
                   <div className="relative mx-auto w-full max-w-5xl overflow-hidden rounded-3xl border border-white/10 bg-slate-950/20 px-4 py-5 sm:px-6 sm:py-7">
@@ -2899,14 +3204,13 @@ export default function App() {
                         <Stethoscope size={30} strokeWidth={1.8} />
                       </div>
                       <h2 className="mt-4 text-2xl font-semibold tracking-tight text-violet-100 sm:mt-5 sm:text-3xl">
-                        How can I help you today?
+                        {ui.heroTitle}
                       </h2>
                       <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-300 sm:text-base">
-                        Get clear, evidence-based medical information. Ask about symptoms, medications,
-                        conditions, or anything health-related.
+                        {ui.heroDescription}
                       </p>
                       <div className="mt-5 grid w-full max-w-5xl gap-2 sm:grid-cols-3">
-                        {CHAT_EMPTY_SUGGESTIONS.map((suggestion) => (
+                        {chatEmptySuggestions.map((suggestion) => (
                           <button
                             key={suggestion}
                             type="button"
@@ -2923,7 +3227,7 @@ export default function App() {
                   <div className="space-y-3">
                     {renderModeInterface}
                     <div className="rounded-xl border border-dashed border-white/20 bg-white/5 p-6 text-center text-slate-300">
-                      Start a conversation. Enter sends message and Shift+Enter inserts a new line.
+                      {ui.startConversationHint}
                     </div>
                   </div>
                 )
@@ -2955,7 +3259,7 @@ export default function App() {
                     <p className="whitespace-pre-wrap text-sm leading-6" {...urduScriptProps}>{messageText}</p>
                   )}
                   <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
-                    <span>{message.role === 'user' ? 'You' : 'Assistant'}</span>
+                    <span>{message.role === 'user' ? ui.youLabel : ui.assistantLabel}</span>
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
@@ -2995,28 +3299,22 @@ export default function App() {
                       <span className="ml-1">{formatTime(message.created_at)}</span>
                     </div>
                   </div>
-                  {message.failed && <p className="mt-2 rounded-md bg-red-500/20 px-2 py-1 text-xs text-red-200">Failed to send. Please retry.</p>}
+                  {message.failed && <p className="mt-2 rounded-md bg-red-500/20 px-2 py-1 text-xs text-red-200">{ui.failedToSend}</p>}
                   </div>
                 );
               })}
               {sending && (
-                <div className="message-bubble mr-auto max-w-3xl rounded-2xl border border-white/10 bg-slate-800/80 px-4 py-3 text-slate-100 break-words">
+                <div className="mr-auto px-1 py-1 text-slate-100 break-words">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div style={{
-                      width: '32px', height: '32px', borderRadius: '50%',
-                      border: isSidebarOpen
-                        ? '1px solid rgba(125,211,252,0.4)'
-                        : `1px solid ${typingIndicatorClosedBorder}`,
-                      background: isSidebarOpen
-                        ? 'linear-gradient(135deg, #0ea5e9, #6366f1)'
-                        : typingIndicatorClosedBg,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: '14px', flexShrink: 0,
-                      color: isSidebarOpen ? '#ecfeff' : typingIndicatorClosedIcon,
-                      boxShadow: isSidebarOpen
-                        ? '0 2px 8px rgba(99,102,241,0.35)'
-                        : typingIndicatorClosedGlow,
-                    }}><Stethoscope size={14} /></div>
+                    <Stethoscope
+                      size={20}
+                      strokeWidth={1.9}
+                      style={{
+                        color: typingIndicatorLogoIcon,
+                        filter: typingIndicatorLogoGlow,
+                        flexShrink: 0,
+                      }}
+                    />
                     <div style={{ display: 'flex', gap: '5px', alignItems: 'center', paddingTop: '2px' }}>
                       <span className="dr-amna-dot" style={{ background: typingIndicatorDotColor }}></span>
                       <span className="dr-amna-dot" style={{ background: typingIndicatorDotColor }}></span>
@@ -3029,15 +3327,54 @@ export default function App() {
             </div>
           </section>
 
+          {showScrollToLatest && sortedMessages.length > 0 && (
+            <div
+              className="pointer-events-none absolute z-30"
+              style={{
+                left: '50%',
+                transform: 'translateX(-50%)',
+                bottom: isMobileLayout ? 122 : 114,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => scrollChatToBottom('smooth')}
+                className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-emerald-300/40 bg-slate-900/90 text-emerald-200 shadow-[0_8px_20px_rgba(16,185,129,0.25)] transition hover:bg-slate-800 hover:text-emerald-100"
+                aria-label="Jump to latest message"
+                title="Jump to latest message"
+              >
+                <ChevronDown size={18} />
+              </button>
+            </div>
+          )}
+
+          <div
+            className="pointer-events-none absolute z-30"
+            style={{
+              right: isMobileLayout ? 6 : 12,
+              bottom: isMobileLayout ? 62 : 50,
+            }}
+            aria-hidden="true"
+          >
+            <DrAmnaCharacter
+              width={isMobileLayout ? 104 : isTabletLayout ? 116 : 126}
+              style={{
+                opacity: 0.99,
+                filter:
+                  'drop-shadow(0 8px 14px rgba(2, 6, 23, 0.45)) drop-shadow(0 0 14px rgba(125, 211, 252, 0.28))',
+              }}
+            />
+          </div>
+
           <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20">
           <div className={`composer-shell pointer-events-auto bg-transparent ${isMobileLayout ? 'px-3 py-1.5' : 'px-4 py-1.5'}`}>
             <div className="mx-auto w-full max-w-2xl">
               {(chatError || shareError) && <div className="mb-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">{chatError || shareError}</div>}
-              <div className="rounded-2xl border border-white/15 bg-slate-900/80 p-2">
+              <div className="rounded-2xl border border-white/15 bg-slate-900/80 p-1.5">
                 <input
                   ref={uploadImageInputRef}
                   type="file"
-                  accept="image/*"
+                  accept={ATTACHMENT_PICKER_ACCEPT}
                   multiple
                   onChange={handleUploadImageSelect}
                   className="hidden"
@@ -3050,7 +3387,7 @@ export default function App() {
                   onChange={handleCaptureImageSelect}
                   className="hidden"
                 />
-                <textarea ref={textAreaRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); handleSendMessage(); } }} placeholder={activeModeConfig.placeholder} rows={1} className="max-h-28 min-h-[32px] w-full resize-none bg-transparent px-1 text-sm text-slate-100 outline-none placeholder:text-slate-500" />
+                <textarea ref={textAreaRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); handleSendMessage(); } }} placeholder={activeModeConfig.placeholder} rows={1} className="max-h-24 min-h-[26px] w-full resize-none bg-transparent px-1 text-sm text-slate-100 outline-none placeholder:text-slate-500" />
                 {attachedImages.length > 0 && (
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     {attachedImages.map((item) => (
@@ -3073,9 +3410,9 @@ export default function App() {
                 )}
                 <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
                   <div className="flex min-h-[22px] items-center gap-2 text-xs text-slate-300">
-                    {dictationState === 'listening' && <span className="text-xs text-emerald-300/90">Listening...</span>}
-                    {dictationState === 'processing' && <span className="text-xs text-amber-200/90">Processing speech...</span>}
-                    {speakingMessageId && <span className="text-xs text-cyan-200/90">Speaking...</span>}
+                    {dictationState === 'listening' && <span className="text-xs text-emerald-300/90">{ui.listening}</span>}
+                    {dictationState === 'processing' && <span className="text-xs text-amber-200/90">{ui.processingSpeech}</span>}
+                    {speakingMessageId && <span className="text-xs text-cyan-200/90">{ui.speaking}</span>}
                   </div>
                   <div
                     ref={composerAttachmentMenuRef}
@@ -3085,13 +3422,13 @@ export default function App() {
                       type="button"
                       onClick={() => setComposerAttachmentMenuOpen((prev) => !prev)}
                       className="mobile-touch-target inline-flex h-9 w-9 items-center justify-center rounded-xl border border-transparent text-slate-200 transition hover:bg-white/10 hover:text-white"
-                      aria-label="Add image"
-                      title="Add image"
+                      aria-label="Add photos and files"
+                      title="Add photos and files"
                     >
                       <Plus size={18} />
                     </button>
                     <div
-                      className={`absolute bottom-11 right-0 z-30 w-44 origin-bottom-right rounded-xl border border-white/15 bg-slate-900/95 p-1.5 shadow-chat transition-all duration-150 ${
+                      className={`absolute bottom-11 right-0 z-30 w-56 origin-bottom-right rounded-xl border border-white/15 bg-slate-900/95 p-1.5 shadow-chat transition-all duration-150 ${
                         composerAttachmentMenuOpen
                           ? 'pointer-events-auto translate-y-0 scale-100 opacity-100'
                           : 'pointer-events-none translate-y-1 scale-95 opacity-0'
@@ -3103,7 +3440,7 @@ export default function App() {
                         className="mobile-touch-target flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-100 hover:bg-white/10"
                       >
                         <Upload size={15} />
-                        Upload image
+                        Add Photos and Files
                       </button>
                       <button
                         type="button"
@@ -3145,7 +3482,7 @@ export default function App() {
             </div>
           </div>
           <footer className={`pointer-events-none bg-transparent text-center text-xs text-slate-400 ${isMobileLayout ? 'px-3 py-1.5' : 'px-4 py-1.5'}`}>
-            Not a substitute for professional medical advice. © 2026 Sohaib Shahid. All Rights Reserved.
+            {ui.footerDisclaimer}
           </footer>
           </div>
         </main>
@@ -3159,43 +3496,42 @@ export default function App() {
             aria-label="Close help modal"
           />
           <div className="relative z-10 w-full max-w-2xl rounded-2xl border border-white/15 bg-slate-900/95 p-4 sm:p-5 shadow-chat">
-            <p className="text-xs uppercase tracking-wider text-slate-400">Help</p>
-            <h2 className="mt-1 text-lg font-semibold text-white">How this chatbot works</h2>
+            <p className="text-xs uppercase tracking-wider text-slate-400">{ui.helpLabel}</p>
+            <h2 className="mt-1 text-lg font-semibold text-white">{ui.helpTitle}</h2>
 
             <div className="mt-4 space-y-3 text-sm text-slate-200">
               <section className="rounded-xl border border-white/10 bg-white/5 p-3">
-                <h3 className="text-sm font-semibold text-white">How it works</h3>
+                <h3 className="text-sm font-semibold text-white">{ui.helpHowItWorks}</h3>
                 <p className="mt-1 leading-6 text-slate-300">
-                  Your message is sent to the medical assistant with your current chat history in the same session.
-                  This helps it remember previous symptoms and continue the same context.
+                  {ui.helpHowItWorksBody}
                 </p>
                 <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-300">
-                  <li>Keeps conversation context inside the active session.</li>
-                  <li>Replies in your language style (English, Urdu script, or Roman Urdu).</li>
-                  <li>Highlights urgent situations when red-flag symptoms are detected.</li>
+                  <li>{ui.helpContext1}</li>
+                  <li>{ui.helpContext2}</li>
+                  <li>{ui.helpContext3}</li>
                 </ul>
               </section>
 
               <section className="rounded-xl border border-white/10 bg-white/5 p-3">
-                <h3 className="text-sm font-semibold text-white">Best way to ask</h3>
+                <h3 className="text-sm font-semibold text-white">{ui.helpBestWayTitle}</h3>
                 <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-300">
-                  <li>Start with your main symptom and since when it started.</li>
-                  <li>Mention severity, triggers, and what makes it better or worse.</li>
-                  <li>Add important history: allergies, chronic illness, and current medicines.</li>
-                  <li>Ask follow-up questions in the same chat to keep context intact.</li>
+                  <li>{ui.helpBest1}</li>
+                  <li>{ui.helpBest2}</li>
+                  <li>{ui.helpBest3}</li>
+                  <li>{ui.helpBest4}</li>
                 </ul>
               </section>
 
               <section className="rounded-xl border border-white/10 bg-white/5 p-3">
-                <h3 className="text-sm font-semibold text-white">Feature guide</h3>
+                <h3 className="text-sm font-semibold text-white">{ui.helpFeatureTitle}</h3>
                 <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-300">
-                  <li><strong>Chat:</strong> general symptom guidance and next-step triage.</li>
-                  <li><strong>Drug Info:</strong> medicine uses, side effects, and precautions.</li>
-                  <li><strong>Research:</strong> simplified medical evidence summaries.</li>
-                  <li><strong>WHO Stats:</strong> public-health indicators and trend insights.</li>
-                  <li><strong>Voice:</strong> tap speaker icon to read assistant replies aloud.</li>
-                  <li><strong>Edit/Copy:</strong> edit sent prompts and copy any message quickly.</li>
-                  <li><strong>Guest mode:</strong> chats are not saved after you leave.</li>
+                  <li>{ui.helpFeatureChat}</li>
+                  <li>{ui.helpFeatureDrug}</li>
+                  <li>{ui.helpFeatureResearch}</li>
+                  <li>{ui.helpFeatureWho}</li>
+                  <li>{ui.helpFeatureVoice}</li>
+                  <li>{ui.helpFeatureEditCopy}</li>
+                  <li>{ui.helpFeatureGuest}</li>
                 </ul>
               </section>
             </div>
@@ -3221,8 +3557,8 @@ export default function App() {
             aria-label="Close feedback modal"
           />
           <div className="relative z-10 w-full max-w-lg rounded-2xl border border-white/15 bg-slate-900/95 p-4 sm:p-5 shadow-chat">
-            <p className="text-xs uppercase tracking-wider text-slate-400">Feedback</p>
-            <h2 className="mt-1 text-lg font-semibold text-white">Send Your Feedback</h2>
+            <p className="text-xs uppercase tracking-wider text-slate-400">{ui.feedbackHeading}</p>
+            <h2 className="mt-1 text-lg font-semibold text-white">{ui.feedbackTitle}</h2>
             <form className="mt-4 space-y-3" onSubmit={handleReviewSubmit}>
               <div>
                 <textarea
@@ -3238,13 +3574,13 @@ export default function App() {
                   }}
                   rows={4}
                   maxLength={2000}
-                  placeholder="Write your feedback..."
+                  placeholder={ui.feedbackPlaceholder}
                   className="w-full rounded-xl border border-white/15 bg-slate-950 px-3 py-2.5 text-sm text-slate-100 outline-none ring-cyan-400/30 focus:ring-2"
                   disabled={reviewSending}
                 />
                 <div className="mt-1 flex items-center justify-between text-xs text-slate-400">
                   <span>{reviewText.length}/2000</span>
-                  <span>{reviewTrimmedLength < 10 ? 'Minimum 10 characters' : 'Looks good'}</span>
+                  <span>{reviewTrimmedLength < 10 ? ui.feedbackMinHint : ui.feedbackLooksGood}</span>
                 </div>
               </div>
 
@@ -3256,7 +3592,7 @@ export default function App() {
 
               {reviewSuccess && (
                 <p className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
-                  Thank you for your feedback!
+                  {ui.feedbackThanks}
                 </p>
               )}
 
@@ -3293,8 +3629,8 @@ export default function App() {
           <div className="relative z-10 w-full max-w-3xl rounded-2xl border border-white/15 bg-slate-900/95 p-5 shadow-chat">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-wider text-slate-400">Settings</p>
-                <h2 className="text-lg font-semibold text-white">Preferences</h2>
+                <p className="text-xs uppercase tracking-wider text-slate-400">{isUrduUI ? 'ترتیبات' : 'Settings'}</p>
+                <h2 className="text-lg font-semibold text-white">{isUrduUI ? 'ترجیحات' : 'Preferences'}</h2>
               </div>
               <button
                 type="button"
@@ -3355,7 +3691,7 @@ export default function App() {
 
               <form className="space-y-4" onSubmit={handlePreferencesSubmit}>
                 <section className="rounded-xl border border-white/10 bg-white/5 p-4">
-                  <h3 className="text-sm font-semibold text-white">Appearance</h3>
+                  <h3 className="text-sm font-semibold text-white">{isUrduUI ? 'ظاہری صورت' : 'Appearance'}</h3>
                   <div className="mt-2 grid gap-2 sm:grid-cols-3">
                     <button
                       type="button"
@@ -3394,7 +3730,7 @@ export default function App() {
                 </section>
 
                 <section className="rounded-xl border border-white/10 bg-white/5 p-4">
-                  <h3 className="text-sm font-semibold text-white">Language</h3>
+                  <h3 className="text-sm font-semibold text-white">{isUrduUI ? 'زبان' : 'Language'}</h3>
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
                     <button
                       type="button"
@@ -3422,9 +3758,9 @@ export default function App() {
                 </section>
 
                 <section className="rounded-xl border border-white/10 bg-white/5 p-4">
-                  <h3 className="text-sm font-semibold text-white">Voice</h3>
+                  <h3 className="text-sm font-semibold text-white">{isUrduUI ? 'آواز' : 'Voice'}</h3>
                   <div className="mt-2 space-y-2 text-sm text-slate-200">
-                    <p>Female (default)</p>
+                    <p>{isUrduUI ? 'خاتون (ڈیفالٹ)' : 'Female (default)'}</p>
                     <label className="inline-flex items-center gap-2">
                       <input
                         type="checkbox"
@@ -3434,22 +3770,22 @@ export default function App() {
                         }
                         className="h-4 w-4 rounded border-white/20 bg-slate-900 text-cyan-400 focus:ring-cyan-400/40"
                       />
-                      Auto language detection
+                      {isUrduUI ? 'خودکار زبان کی شناخت' : 'Auto language detection'}
                     </label>
                   </div>
                 </section>
 
                 <section className="rounded-xl border border-white/10 bg-white/5 p-4">
-                  <h3 className="text-sm font-semibold text-white">Account</h3>
+                  <h3 className="text-sm font-semibold text-white">{isUrduUI ? 'اکاؤنٹ' : 'Account'}</h3>
                   <label className="mt-2 block text-sm text-slate-300" htmlFor="settings_display_name">
-                    Change display name
+                    {isUrduUI ? 'ڈسپلے نام تبدیل کریں' : 'Change display name'}
                   </label>
                   <input
                     id="settings_display_name"
                     value={appSettings.display_name}
                     onChange={(event) => handlePreferenceFieldChange('display_name', event.target.value)}
                     className="mt-1 w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-cyan-400/30 focus:ring-2"
-                    placeholder="Your name"
+                    placeholder={isUrduUI ? 'آپ کا نام' : 'Your name'}
                     maxLength={200}
                   />
                 </section>
@@ -3484,8 +3820,10 @@ export default function App() {
                   )}
 
                   <section className="rounded-xl border border-white/10 bg-white/5 p-4">
-                    <h3 className="text-sm font-semibold text-white">Response Style</h3>
-                    <p className="mt-1 text-xs text-slate-400">Adjust tone without changing assistant capability.</p>
+                    <h3 className="text-sm font-semibold text-white">{isUrduUI ? 'جواب کا انداز' : 'Response Style'}</h3>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {isUrduUI ? 'اسسٹنٹ کی صلاحیت بدلے بغیر لہجہ ایڈجسٹ کریں۔' : 'Adjust tone without changing assistant capability.'}
+                    </p>
                     <select
                       value={effectivePersonalization.response_style}
                       onChange={(event) =>
@@ -3503,9 +3841,9 @@ export default function App() {
                   </section>
 
                   <section className="rounded-xl border border-white/10 bg-white/5 p-4">
-                    <h3 className="text-sm font-semibold text-white">Custom Instructions</h3>
+                    <h3 className="text-sm font-semibold text-white">{isUrduUI ? 'حسبِ ضرورت ہدایات' : 'Custom Instructions'}</h3>
                     <label htmlFor="personalization_instructions" className="mt-1 block text-xs text-slate-400">
-                      How should the assistant respond to you?
+                      {isUrduUI ? 'اسسٹنٹ آپ کو کس انداز میں جواب دے؟' : 'How should the assistant respond to you?'}
                     </label>
                     <textarea
                       id="personalization_instructions"
@@ -3516,38 +3854,42 @@ export default function App() {
                       rows={4}
                       maxLength={4000}
                       className="mt-2 w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-cyan-400/30 focus:ring-2"
-                      placeholder="Example: Explain in simple language and use step-by-step format."
+                      placeholder={
+                        isUrduUI
+                          ? 'مثال: آسان زبان میں مرحلہ وار وضاحت کریں۔'
+                          : 'Example: Explain in simple language and use step-by-step format.'
+                      }
                       disabled={personalizationBusy || personalizationSaving}
                     />
                   </section>
 
                   <section className="rounded-xl border border-white/10 bg-white/5 p-4">
-                    <h3 className="text-sm font-semibold text-white">About You</h3>
+                    <h3 className="text-sm font-semibold text-white">{isUrduUI ? 'آپ کے بارے میں' : 'About You'}</h3>
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
                       <div>
                         <label htmlFor="personalization_nickname" className="mb-1 block text-sm text-slate-300">
-                          Nickname
+                          {isUrduUI ? 'عرفی نام' : 'Nickname'}
                         </label>
                         <input
                           id="personalization_nickname"
                           value={effectivePersonalization.nickname}
                           onChange={(event) => handlePersonalizationFieldChange('nickname', event.target.value)}
                           className="w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-cyan-400/30 focus:ring-2"
-                          placeholder="How should I call you?"
+                          placeholder={isUrduUI ? 'آپ کو کس نام سے پکاروں؟' : 'How should I call you?'}
                           maxLength={120}
                           disabled={personalizationBusy || personalizationSaving}
                         />
                       </div>
                       <div>
                         <label htmlFor="personalization_occupation" className="mb-1 block text-sm text-slate-300">
-                          Occupation
+                          {isUrduUI ? 'پیشہ' : 'Occupation'}
                         </label>
                         <input
                           id="personalization_occupation"
                           value={effectivePersonalization.occupation}
                           onChange={(event) => handlePersonalizationFieldChange('occupation', event.target.value)}
                           className="w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-cyan-400/30 focus:ring-2"
-                          placeholder="Your profession"
+                          placeholder={isUrduUI ? 'آپ کا پیشہ' : 'Your profession'}
                           maxLength={160}
                           disabled={personalizationBusy || personalizationSaving}
                         />
@@ -3555,7 +3897,7 @@ export default function App() {
                     </div>
                     <div className="mt-3">
                       <label htmlFor="personalization_about_user" className="mb-1 block text-sm text-slate-300">
-                        About You
+                        {isUrduUI ? 'آپ کے بارے میں' : 'About You'}
                       </label>
                       <textarea
                         id="personalization_about_user"
@@ -3564,17 +3906,19 @@ export default function App() {
                         rows={3}
                         maxLength={2000}
                         className="w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-cyan-400/30 focus:ring-2"
-                        placeholder="Interests and preferences."
+                        placeholder={isUrduUI ? 'دلچسپیاں اور ترجیحات۔' : 'Interests and preferences.'}
                         disabled={personalizationBusy || personalizationSaving}
                       />
                     </div>
                   </section>
 
                   <section className="rounded-xl border border-white/10 bg-white/5 p-4">
-                    <h3 className="text-sm font-semibold text-white">Memory Controls</h3>
+                    <h3 className="text-sm font-semibold text-white">{isUrduUI ? 'میموری کنٹرولز' : 'Memory Controls'}</h3>
                     <div className="mt-3 space-y-3">
                       <label className="flex items-center justify-between gap-3">
-                        <span className="text-sm text-slate-200">Allow assistant to remember my preferences</span>
+                        <span className="text-sm text-slate-200">
+                          {isUrduUI ? 'اسسٹنٹ کو میری ترجیحات یاد رکھنے دیں' : 'Allow assistant to remember my preferences'}
+                        </span>
                         <button
                           type="button"
                           onClick={() =>
@@ -3594,7 +3938,9 @@ export default function App() {
                         </button>
                       </label>
                       <label className="flex items-center justify-between gap-3">
-                        <span className="text-sm text-slate-200">Allow assistant to reference previous chats</span>
+                        <span className="text-sm text-slate-200">
+                          {isUrduUI ? 'اسسٹنٹ کو پچھلی چیٹس کا حوالہ دینے دیں' : 'Allow assistant to reference previous chats'}
+                        </span>
                         <button
                           type="button"
                           onClick={() =>
@@ -3624,7 +3970,7 @@ export default function App() {
                     {(personalizationBusy || personalizationSaving) && (
                       <p className="mt-3 inline-flex items-center gap-2 text-xs text-cyan-200">
                         <Loader2 size={14} className="animate-spin" />
-                        Saving...
+                        {isUrduUI ? 'محفوظ کیا جا رہا ہے...' : 'Saving...'}
                       </p>
                     )}
                   </section>
@@ -3634,8 +3980,8 @@ export default function App() {
               {settingsTab === SETTINGS_TAB_MEDICAL && (
                 <>
               <div>
-                <p className="text-xs uppercase tracking-wider text-slate-400">Medical Profile</p>
-                <h3 className="mt-1 text-base font-semibold text-white">Health context</h3>
+                <p className="text-xs uppercase tracking-wider text-slate-400">{isUrduUI ? 'میڈیکل پروفائل' : 'Medical Profile'}</p>
+                <h3 className="mt-1 text-base font-semibold text-white">{isUrduUI ? 'صحت کا سیاق' : 'Health context'}</h3>
               </div>
               {profileError && (
                 <p className="mb-3 mt-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
@@ -3652,7 +3998,7 @@ export default function App() {
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div>
                       <label className="mb-1 block text-sm text-slate-300" htmlFor="profile_age">
-                        Age
+                        {isUrduUI ? 'عمر' : 'Age'}
                       </label>
                       <input
                         id="profile_age"
@@ -3662,13 +4008,13 @@ export default function App() {
                         value={profileForm.age}
                         onChange={(event) => handleProfileFieldChange('age', event.target.value)}
                         className="w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-cyan-400/30 focus:ring-2"
-                        placeholder="e.g. 29"
+                        placeholder={isUrduUI ? 'مثال: 29' : 'e.g. 29'}
                         disabled={profileBusy || profileSaving}
                       />
                     </div>
                     <div>
                       <label className="mb-1 block text-sm text-slate-300" htmlFor="profile_gender">
-                        Gender
+                        {isUrduUI ? 'جنس' : 'Gender'}
                       </label>
                       <select
                         id="profile_gender"
@@ -3677,17 +4023,17 @@ export default function App() {
                         className="w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-cyan-400/30 focus:ring-2"
                         disabled={profileBusy || profileSaving}
                       >
-                        <option value="">Not specified</option>
-                        <option value="male">Male</option>
-                        <option value="female">Female</option>
-                        <option value="other">Other</option>
-                        <option value="prefer_not_to_say">Prefer not to say</option>
+                        <option value="">{isUrduUI ? 'متعین نہیں' : 'Not specified'}</option>
+                        <option value="male">{isUrduUI ? 'مرد' : 'Male'}</option>
+                        <option value="female">{isUrduUI ? 'خاتون' : 'Female'}</option>
+                        <option value="other">{isUrduUI ? 'دیگر' : 'Other'}</option>
+                        <option value="prefer_not_to_say">{isUrduUI ? 'بتانا نہیں چاہتے' : 'Prefer not to say'}</option>
                       </select>
                     </div>
                   </div>
                   <div>
                     <label className="mb-1 block text-sm text-slate-300" htmlFor="profile_medical_history">
-                      Medical History
+                      {isUrduUI ? 'طبی سابقہ' : 'Medical History'}
                     </label>
                     <textarea
                       id="profile_medical_history"
@@ -3695,13 +4041,13 @@ export default function App() {
                       onChange={(event) => handleProfileFieldChange('medical_history', event.target.value)}
                       rows={3}
                       className="w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-cyan-400/30 focus:ring-2"
-                      placeholder="Past medical history"
+                      placeholder={isUrduUI ? 'گزشتہ طبی تاریخ' : 'Past medical history'}
                       disabled={profileBusy || profileSaving}
                     />
                   </div>
                   <div>
                     <label className="mb-1 block text-sm text-slate-300" htmlFor="profile_allergies">
-                      Allergies
+                      {isUrduUI ? 'الرجیز' : 'Allergies'}
                     </label>
                     <textarea
                       id="profile_allergies"
@@ -3709,13 +4055,13 @@ export default function App() {
                       onChange={(event) => handleProfileFieldChange('allergies', event.target.value)}
                       rows={2}
                       className="w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-cyan-400/30 focus:ring-2"
-                      placeholder="Known allergies"
+                      placeholder={isUrduUI ? 'معروف الرجیز' : 'Known allergies'}
                       disabled={profileBusy || profileSaving}
                     />
                   </div>
                   <div>
                     <label className="mb-1 block text-sm text-slate-300" htmlFor="profile_medications">
-                      Medications
+                      {isUrduUI ? 'ادویات' : 'Medications'}
                     </label>
                     <textarea
                       id="profile_medications"
@@ -3723,13 +4069,13 @@ export default function App() {
                       onChange={(event) => handleProfileFieldChange('medications', event.target.value)}
                       rows={2}
                       className="w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-cyan-400/30 focus:ring-2"
-                      placeholder="Current medications"
+                      placeholder={isUrduUI ? 'موجودہ ادویات' : 'Current medications'}
                       disabled={profileBusy || profileSaving}
                     />
                   </div>
                   <div>
                     <label className="mb-1 block text-sm text-slate-300" htmlFor="profile_chronic_conditions">
-                      Chronic Conditions
+                      {isUrduUI ? 'دائمی بیماریاں' : 'Chronic Conditions'}
                     </label>
                     <textarea
                       id="profile_chronic_conditions"
@@ -3737,7 +4083,7 @@ export default function App() {
                       onChange={(event) => handleProfileFieldChange('chronic_conditions', event.target.value)}
                       rows={2}
                       className="w-full rounded-lg border border-white/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-cyan-400/30 focus:ring-2"
-                      placeholder="Chronic conditions"
+                      placeholder={isUrduUI ? 'دائمی بیماریاں' : 'Chronic conditions'}
                       disabled={profileBusy || profileSaving}
                     />
                   </div>
@@ -3754,7 +4100,7 @@ export default function App() {
                 </form>
               ) : (
                 <p className="mt-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300">
-                  Sign in to manage medical profile.
+                  {isUrduUI ? 'میڈیکل پروفائل منیج کرنے کے لیے سائن اِن کریں۔' : 'Sign in to manage medical profile.'}
                 </p>
               )}
                 </>

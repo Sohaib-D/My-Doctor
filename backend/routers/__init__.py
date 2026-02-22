@@ -1,5 +1,3 @@
-from backend.routers.chat import router as chat_router
+"""HTTP router modules."""
 
-__all__ = [
-    "chat_router",
-]
+__all__: list[str] = []

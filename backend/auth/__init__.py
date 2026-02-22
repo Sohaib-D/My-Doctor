@@ -1,1 +1,1 @@
-﻿"""Authentication helpers (JWT + Firebase token verification)."""
+"""Authentication helpers (JWT and current-user dependencies)."""
