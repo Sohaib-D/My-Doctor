@@ -28,6 +28,9 @@ import {
   SlidersHorizontal,
   Sparkles,
   Stethoscope,
+  Sun,
+  Moon,
+  Monitor,
   Trash2,
   Upload,
   Volume2,
@@ -76,7 +79,7 @@ const SIDEBAR_RESIZE_MIN = 200;
 const SIDEBAR_RESIZE_MAX = 400;
 const MOBILE_MAX_WIDTH = 767;
 const TABLET_MAX_WIDTH = 1199;
-const SILENCE_TIMEOUT_MS = 2500;
+const SILENCE_TIMEOUT_MS = 3000;
 const MAX_IMAGE_ATTACHMENTS = 4;
 const MAX_IMAGE_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024;
 const MAX_FILE_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024;
@@ -99,6 +102,7 @@ const THEME_CLASS_LIGHT = 'theme-light';
 const THEME_CLASS_DARK = 'theme-dark';
 const THEME_MODE_CLASS_LIGHT = 'light';
 const THEME_MODE_CLASS_DARK = 'dark';
+const APPEARANCE_CYCLE = ['dark', 'light', 'system'];
 const SETTINGS_TAB_GENERAL = 'general';
 const SETTINGS_TAB_PERSONALIZATION = 'personalization';
 const SETTINGS_TAB_MEDICAL = 'medical';
@@ -676,6 +680,9 @@ export default function App() {
   }));
   const [attachedImages, setAttachedImages] = useState([]);
   const [composerAttachmentMenuOpen, setComposerAttachmentMenuOpen] = useState(false);
+  const [cameraCaptureOpen, setCameraCaptureOpen] = useState(false);
+  const [cameraCaptureBusy, setCameraCaptureBusy] = useState(false);
+  const [cameraCaptureError, setCameraCaptureError] = useState('');
   const [dictationSupported, setDictationSupported] = useState(false);
   const [dictationState, setDictationState] = useState('idle');
   const [voices, setVoices] = useState([]);
@@ -721,6 +728,8 @@ export default function App() {
   const composerAttachmentMenuRef = useRef(null);
   const uploadImageInputRef = useRef(null);
   const captureImageInputRef = useRef(null);
+  const cameraVideoRef = useRef(null);
+  const cameraStreamRef = useRef(null);
   const reviewCloseTimerRef = useRef(null);
   const sidebarResizeStartXRef = useRef(0);
   const sidebarResizeStartWidthRef = useRef(SIDEBAR_OPEN_WIDTH);
@@ -1013,6 +1022,69 @@ export default function App() {
     [clearSilenceTimer]
   );
 
+  const stopCameraCaptureStream = useCallback(() => {
+    const stream = cameraStreamRef.current;
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+      cameraStreamRef.current = null;
+    }
+    if (cameraVideoRef.current) {
+      cameraVideoRef.current.srcObject = null;
+    }
+  }, []);
+
+  const closeCameraCapture = useCallback(() => {
+    setCameraCaptureOpen(false);
+    setCameraCaptureBusy(false);
+    setCameraCaptureError('');
+    stopCameraCaptureStream();
+  }, [stopCameraCaptureStream]);
+
+  const openCameraCapture = useCallback(async () => {
+    setComposerAttachmentMenuOpen(false);
+    setCameraCaptureError('');
+    if (!navigator.mediaDevices?.getUserMedia) {
+      if (captureImageInputRef.current) {
+        captureImageInputRef.current.click();
+      }
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false,
+      });
+      cameraStreamRef.current = stream;
+      setCameraCaptureOpen(true);
+      window.requestAnimationFrame(() => {
+        const videoElement = cameraVideoRef.current;
+        if (!videoElement) {
+          return;
+        }
+        videoElement.srcObject = stream;
+        const maybePlay = videoElement.play?.();
+        if (maybePlay && typeof maybePlay.catch === 'function') {
+          maybePlay.catch(() => {
+            // Browser may require another user interaction to start preview.
+          });
+        }
+      });
+    } catch {
+      if (captureImageInputRef.current) {
+        captureImageInputRef.current.click();
+      } else {
+        setChatError('Unable to access camera. Check camera permissions and try again.');
+      }
+    }
+  }, []);
+
+  useEffect(
+    () => () => {
+      stopCameraCaptureStream();
+    },
+    [stopCameraCaptureStream]
+  );
+
   const clearLocalSession = useCallback(() => {
     if (reviewCloseTimerRef.current) {
       window.clearTimeout(reviewCloseTimerRef.current);
@@ -1034,6 +1106,10 @@ export default function App() {
     });
     setAttachedImages([]);
     setComposerAttachmentMenuOpen(false);
+    setCameraCaptureOpen(false);
+    setCameraCaptureBusy(false);
+    setCameraCaptureError('');
+    stopCameraCaptureStream();
     setActiveMode(DEFAULT_CHAT_MODE);
     setChatError('');
     setShowScrollToLatest(false);
@@ -1497,14 +1573,16 @@ export default function App() {
     setDictationState('listening');
     setChatError('');
 
-    const resetSilenceTimer = () => {
+    const armSilenceTimer = () => {
       clearSilenceTimer();
       silenceTimerRef.current = window.setTimeout(() => stopDictation(false), SILENCE_TIMEOUT_MS);
     };
 
-    recognition.onstart = resetSilenceTimer;
+    recognition.onstart = () => {
+      // Start listening immediately; silence timeout is armed only after speech results begin.
+    };
     recognition.onresult = (event) => {
-      resetSilenceTimer();
+      armSilenceTimer();
       let chunk = '';
       for (let index = event.resultIndex; index < event.results.length; index += 1) {
         const transcript = event.results[index][0]?.transcript?.trim();
@@ -1529,7 +1607,6 @@ export default function App() {
 
     try {
       recognition.start();
-      resetSilenceTimer();
     } catch {
       clearSilenceTimer();
       recognitionRef.current = null;
@@ -1927,6 +2004,15 @@ export default function App() {
     [handlePreferenceFieldChange]
   );
 
+  const handleCycleAppearance = useCallback(() => {
+    const current = ['light', 'dark', 'system'].includes(appSettings.appearance)
+      ? appSettings.appearance
+      : 'dark';
+    const currentIndex = APPEARANCE_CYCLE.indexOf(current);
+    const nextAppearance = APPEARANCE_CYCLE[(currentIndex + 1) % APPEARANCE_CYCLE.length];
+    handlePreferenceFieldChange('appearance', nextAppearance);
+  }, [appSettings.appearance, handlePreferenceFieldChange]);
+
   const handlePreferencesSubmit = useCallback(
     async (event) => {
       event.preventDefault();
@@ -2151,7 +2237,7 @@ export default function App() {
     setResendBusy(false);
     setShowResendVerification(false);
     setPendingVerificationLogin(createPendingVerificationLogin());
-  }, [stopDictation, stopSpeaking]);
+  }, [stopCameraCaptureStream, stopDictation, stopSpeaking]);
 
   const invalidatePendingSend = useCallback(() => {
     sendSequenceRef.current += 1;
@@ -2555,11 +2641,61 @@ export default function App() {
   }, []);
 
   const handleOpenCaptureImagePicker = useCallback(() => {
-    setComposerAttachmentMenuOpen(false);
-    if (captureImageInputRef.current) {
-      captureImageInputRef.current.click();
+    openCameraCapture();
+  }, [openCameraCapture]);
+
+  const handleCameraCapturePhoto = useCallback(async () => {
+    const video = cameraVideoRef.current;
+    if (!video) {
+      setCameraCaptureError('Camera preview is not ready yet.');
+      return;
     }
-  }, []);
+    const width = video.videoWidth || 1280;
+    const height = video.videoHeight || 720;
+    if (!width || !height) {
+      setCameraCaptureError('Unable to capture image right now. Please try again.');
+      return;
+    }
+
+    setCameraCaptureBusy(true);
+    setCameraCaptureError('');
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (!context) {
+        throw new Error('camera-canvas-context-failed');
+      }
+      context.drawImage(video, 0, 0, width, height);
+
+      const blob = await new Promise((resolve, reject) => {
+        canvas.toBlob(
+          (result) => {
+            if (result) {
+              resolve(result);
+              return;
+            }
+            reject(new Error('camera-blob-capture-failed'));
+          },
+          'image/jpeg',
+          0.92
+        );
+      });
+
+      const capturedFile = new File([blob], `camera-${Date.now()}.jpg`, {
+        type: 'image/jpeg',
+        lastModified: Date.now(),
+      });
+
+      await addImageAttachments([capturedFile]);
+      closeCameraCapture();
+    } catch {
+      setCameraCaptureError('Unable to capture image. Please try again.');
+    } finally {
+      setCameraCaptureBusy(false);
+    }
+  }, [addImageAttachments, closeCameraCapture]);
 
   const handleRemoveAttachedImage = useCallback((attachmentId) => {
     setAttachedImages((prev) => prev.filter((item) => item.id !== attachmentId));
@@ -2893,7 +3029,7 @@ export default function App() {
                 <div>
                   <div className="mb-3 flex items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2">
-                      <div className="pd-stethoscope-cyan inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-white/5 text-cyan-200">
+                      <div className="sidebar-logo-box pd-stethoscope-cyan inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-white/5 text-cyan-200">
                         <Stethoscope size={16} />
                       </div>
                       <p className="pd-logo-text truncate text-sm font-semibold text-slate-100">Personal Doctor AI</p>
@@ -2901,7 +3037,7 @@ export default function App() {
                     <button
                       type="button"
                       onClick={toggleSidebar}
-                      className="mobile-touch-target inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 text-slate-300 hover:bg-white/10 hover:text-white"
+                      className="sidebar-logo-box mobile-touch-target inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 text-slate-300 hover:bg-white/10 hover:text-white"
                       aria-label="Collapse sidebar"
                     >
                       <Menu size={16} />
@@ -3178,6 +3314,21 @@ export default function App() {
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={handleCycleAppearance}
+                className="mobile-touch-target inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 text-slate-200 transition hover:bg-white/10 hover:text-white"
+                aria-label={`Switch appearance mode (current: ${appSettings.appearance})`}
+                title={`Appearance: ${appSettings.appearance}`}
+              >
+                {appSettings.appearance === 'light' ? (
+                  <Sun size={16} />
+                ) : appSettings.appearance === 'dark' ? (
+                  <Moon size={16} />
+                ) : (
+                  <Monitor size={16} />
+                )}
+              </button>
               <div className="inline-flex items-center gap-1 rounded-2xl border border-violet-300/25 bg-slate-900/85 p-1">
                 <button
                   type="button"
@@ -3245,25 +3396,25 @@ export default function App() {
               {loadingHistory && <div className="flex items-center gap-2 text-sm text-slate-300"><Loader2 size={15} className="animate-spin" />{ui.loadingConversation}</div>}
               {!sortedMessages.length && !loadingHistory && (
                 activeMode === 'chat' ? (
-                  <div className="relative mx-auto w-full max-w-5xl overflow-hidden rounded-3xl border border-white/10 bg-slate-950/20 px-4 py-5 sm:px-6 sm:py-7">
+                  <div className="chat-empty-hero relative mx-auto w-full max-w-3xl overflow-hidden rounded-3xl border border-white/10 bg-slate-950/20 px-4 py-5 sm:px-5 sm:py-6">
                     <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_35%,rgba(167,243,208,0.08),transparent_55%)]" />
-                    <div className="relative mx-auto flex max-w-4xl flex-col items-center text-center">
-                      <div className="pd-stethoscope-emerald inline-flex h-[72px] w-[72px] items-center justify-center rounded-2xl border border-emerald-300/30 bg-emerald-300/15 text-emerald-200 shadow-[0_10px_24px_rgba(16,185,129,0.16)] sm:h-[80px] sm:w-[80px]">
-                        <Stethoscope size={30} strokeWidth={1.8} />
+                    <div className="relative mx-auto flex max-w-3xl flex-col items-center text-center">
+                      <div className="pd-stethoscope-emerald inline-flex h-[60px] w-[60px] items-center justify-center rounded-2xl border border-emerald-300/30 bg-emerald-300/15 text-emerald-200 shadow-[0_10px_24px_rgba(16,185,129,0.16)] sm:h-[68px] sm:w-[68px]">
+                        <Stethoscope size={26} strokeWidth={1.8} />
                       </div>
-                      <h2 className="mt-4 text-2xl font-semibold tracking-tight text-violet-100 sm:mt-5 sm:text-3xl">
+                      <h2 className="mt-3 text-xl font-semibold tracking-tight text-violet-100 sm:mt-4 sm:text-2xl">
                         {ui.heroTitle}
                       </h2>
-                      <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-300 sm:text-base">
+                      <p className="mt-2.5 max-w-xl text-sm leading-relaxed text-slate-300 sm:text-[15px]">
                         {ui.heroDescription}
                       </p>
-                      <div className="mt-5 grid w-full max-w-5xl gap-2 sm:grid-cols-3">
+                      <div className="mt-4 grid w-full max-w-4xl gap-2 sm:grid-cols-3">
                         {chatEmptySuggestions.map((suggestion) => (
                           <button
                             key={suggestion}
                             type="button"
                             onClick={() => handleModeSuggestion(suggestion)}
-                            className="mobile-touch-target rounded-full border border-white/15 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white sm:text-sm"
+                            className="mobile-touch-target rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white sm:text-sm"
                           >
                             {suggestion}
                           </button>
@@ -3291,10 +3442,16 @@ export default function App() {
                   {message.role === 'assistant' ? (
                     <div
                       className={`message-rich text-sm leading-6 ${urduScriptClass}`.trim()}
+                      style={isUrduScriptMessage ? { direction: 'rtl', textAlign: 'right' } : {}}
                       dangerouslySetInnerHTML={{ __html: renderMessageHtml(message) }}
                     />
                   ) : (
-                    <p className={`whitespace-pre-wrap text-sm leading-6 ${urduScriptClass}`.trim()}>{messageText}</p>
+                    <p
+                      className={`whitespace-pre-wrap text-sm leading-6 ${urduScriptClass}`.trim()}
+                      style={isUrduScriptMessage ? { direction: 'rtl', textAlign: 'right' } : {}}
+                    >
+                      {messageText}
+                    </p>
                   )}
                   <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
                     <span>{message.role === 'user' ? ui.youLabel : ui.assistantLabel}</span>
@@ -3427,27 +3584,39 @@ export default function App() {
                   onChange={handleCaptureImageSelect}
                   className="hidden"
                 />
-                <textarea ref={textAreaRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); handleSendMessage(); } }} placeholder={activeModeConfig.placeholder} rows={1} className="max-h-24 min-h-[26px] w-full resize-none bg-transparent px-1 text-sm text-slate-100 outline-none placeholder:text-slate-500" />
-                {attachedImages.length > 0 && (
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    {attachedImages.map((item) => (
-                      <span
-                        key={item.id}
-                        className="inline-flex max-w-full items-center gap-2 rounded-full border border-emerald-300/30 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-100"
-                      >
-                        <span className="max-w-[180px] truncate">{item.name}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveAttachedImage(item.id)}
-                          className="inline-flex h-4 w-4 items-center justify-center rounded-full text-emerald-100/80 hover:bg-emerald-500/20 hover:text-emerald-50"
-                          aria-label={`Remove ${item.name}`}
+                <div className="relative">
+                  <textarea
+                    ref={textAreaRef}
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); handleSendMessage(); } }}
+                    placeholder={activeModeConfig.placeholder}
+                    rows={1}
+                    className={`max-h-24 min-h-[26px] w-full resize-none bg-transparent px-1 text-sm text-slate-100 outline-none placeholder:text-slate-500 ${
+                      attachedImages.length > 0 ? 'pt-8' : ''
+                    }`}
+                  />
+                  {attachedImages.length > 0 && (
+                    <div className="pointer-events-auto absolute right-1 top-1 z-10 flex max-w-[92%] flex-wrap justify-end gap-1.5 sm:max-w-[75%]">
+                      {attachedImages.map((item) => (
+                        <span
+                          key={item.id}
+                          className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-emerald-300/30 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-100"
                         >
-                          <X size={12} />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
+                          <span className="max-w-[150px] truncate">{item.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveAttachedImage(item.id)}
+                            className="inline-flex h-4 w-4 items-center justify-center rounded-full text-emerald-100/80 hover:bg-emerald-500/20 hover:text-emerald-50"
+                            aria-label={`Remove ${item.name}`}
+                          >
+                            <X size={12} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
                   <div className="flex min-h-[22px] items-center gap-2 text-xs text-slate-300">
                     {dictationState === 'listening' && <span className="text-xs text-emerald-300/90">{ui.listening}</span>}
@@ -3527,6 +3696,52 @@ export default function App() {
           </div>
         </main>
       </div>
+      {cameraCaptureOpen && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-950/75 backdrop-blur-sm"
+            onClick={closeCameraCapture}
+            aria-label="Close camera capture"
+          />
+          <div className="relative z-10 w-full max-w-lg rounded-2xl border border-white/15 bg-slate-900/95 p-4 shadow-chat">
+            <h2 className="text-base font-semibold text-white">Take picture</h2>
+            <p className="mt-1 text-xs text-slate-300">Capture a photo and attach it to this conversation.</p>
+            {cameraCaptureError && (
+              <p className="mt-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                {cameraCaptureError}
+              </p>
+            )}
+            <div className="mt-3 overflow-hidden rounded-xl border border-white/10 bg-black">
+              <video
+                ref={cameraVideoRef}
+                autoPlay
+                playsInline
+                muted
+                className="h-[280px] w-full object-cover sm:h-[320px]"
+              />
+            </div>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeCameraCapture}
+                className="mobile-touch-target rounded-lg border border-white/20 px-4 py-2 text-sm text-slate-200 hover:bg-white/10"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCameraCapturePhoto}
+                disabled={cameraCaptureBusy}
+                className="mobile-touch-target inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 disabled:opacity-60"
+              >
+                {cameraCaptureBusy ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />}
+                Capture
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {helpModalOpen && (
         <div className="absolute inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
           <button

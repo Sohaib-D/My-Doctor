@@ -298,6 +298,10 @@ html.theme-light [class*='bg-cyan-500/10'] {
   background: rgba(56, 189, 248, 0.13) !important;
 }
 
+html.theme-light .chat-empty-hero {
+  background: rgba(255, 255, 255, 0.6) !important;
+}
+
 html.theme-light .medical-grid-overlay {
   background-image:
     linear-gradient(rgba(131, 145, 189, 0.15) 1px, transparent 1px),
@@ -339,6 +343,11 @@ html.theme-light #root .pd-stethoscope-cyan * {
 html.theme-light .pd-stethoscope-cyan {
   background: rgba(255, 255, 255, 0.05) !important;
   border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+html.theme-light .sidebar-logo-box {
+  background: rgba(15, 23, 42, 0.06) !important;
+  border-color: rgba(15, 23, 42, 0.2) !important;
 }
 
 html.theme-light .pd-logo-text {
@@ -385,11 +394,14 @@ html.theme-dark .chat-scroll-area {
   word-break: break-word;
 }
 
-.urdu-left-align,
+.urdu-left-align {
+  direction: rtl;
+  text-align: right !important;
+}
+
 .urdu-left-align * {
-  direction: ltr !important;
-  text-align: left !important;
-  unicode-bidi: normal !important;
+  direction: rtl !important;
+  text-align: right !important;
 }
 
 .message-rich .rich-p {

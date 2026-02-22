@@ -78,10 +78,14 @@ export default function SharedConversationPage({ shareId }) {
                 {message.role === 'assistant' ? (
                   <div
                     className={`message-rich text-sm leading-6 ${urduScriptClass}`.trim()}
+                    style={containsUrdu(messageText) ? { direction: 'rtl', textAlign: 'right' } : {}}
                     dangerouslySetInnerHTML={{ __html: renderMessageHtml(message) }}
                   />
                 ) : (
-                  <p className={`whitespace-pre-wrap text-sm leading-6 ${urduScriptClass}`.trim()}>
+                  <p
+                    className={`whitespace-pre-wrap text-sm leading-6 ${urduScriptClass}`.trim()}
+                    style={containsUrdu(messageText) ? { direction: 'rtl', textAlign: 'right' } : {}}
+                  >
                     {messageText}
                   </p>
                 )}

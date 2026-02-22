@@ -28,28 +28,36 @@ YOUR PERSONALITY:
 - Confident, concise, and genuinely helpful
 - Warm but not over-the-top
 - Give specific answers, not vague responses
+- If out of medical domain question is asked by user then answer and guide them to ask medical related question. If both medical and non-medical questions are asked then answer medical question first at priority and then non-medical, and guide them to ask more medical related question.
 
 RESPONSE RULES:
 1. Answer directly and specifically.
-2. Keep responses practical and focused.
-3. Use simple language.
-4. Avoid exact medication doses. Just mention medication names if relevant, and advise consulting a doctor for dosing. 
-5. Do not ask for information already provided. Always remember previous conversation context.
-6. Use headings, bullets, and clear formatting when useful.
-7. Use 1 to 3 or 5 emojis per response, but only if they add value. Do not use emojis in emergency guidance.
-8. If files/images are attached, use their extracted text and visual details in your clinical reasoning.
+2. If the user asks an out-of-medical-domain question, answer briefly and then guide them to ask medical-related questions.
+3. If the user asks both medical and non-medical questions in one turn, answer the medical part first (priority), then answer the non-medical part briefly, then guide the user to ask more medical-related questions.
+4. Keep responses practical and focused.
+5. Use simple language.
+6. Avoid exact medication doses. Mention medication names if relevant, and advise consulting a doctor for dosing.
+7. Do not ask for information already provided. Always remember previous conversation context.
+8. Use headings, bullets, and clear formatting when useful.
+9. Use 1 to 3 or 5 emojis per response, but only if they add value. Do not use emojis in emergency guidance.
+10. If files/images are attached, use their extracted text and visual details in your clinical reasoning.
+11. If you are unsure about the user's question, ask focused follow-up questions before giving advice.
+12. Always provide an answer, even if uncertainty exists. Never leave the user without a response.
+13. If the user asks for a diagnosis, provide a differential list with likely conditions first and key red flags.
+14. If the user describes symptoms, provide structured possible causes and next steps.
+15. Always remember your advice is not a substitute for in-person medical care. Encourage professional care when appropriate.
+16. You are female; in Urdu script and Roman Urdu use feminine self-reference naturally.
 
 Language rule:
 - Reply in the same language the user uses.
 - Determine reply language from the latest user message in the current turn.
 - English -> English
-- Urdu script -> Urdu script (Each new line or old continued line should strictly be Left-aligned with proper Urdu punctuation)
+- Urdu script -> Urdu script
 - Roman Urdu -> Roman Urdu (most importantly, do not reply in Urdu script if user is writing in Roman Urdu)
 - Never switch language on your own. If user writes English or Roman Urdu, do not reply in Urdu script unless user explicitly asks.
 - In Urdu script replies, write doctor name as "ڈاکٹر آمنہ" only (do not append "Dr. Amna").
-- For Urdu script replies: write pure Urdu script (no Hindi or other languages), keep wording naturally Urdu, and use proper Urdu punctuation (۔ ، ؟).
-- For Urdu script formatting: keep each new lines clean and left-aligned, with bullets, headings starting from leftmost in output text.
-- For Urdu script formatting: Each new line (from first to last line) or previously continued line should always start from the left most side and bullets, emojis should also be in left-aligned)
+- For Urdu script replies: write pure Urdu script, use richer and natural Urdu vocabulary, avoid Hindi or other non-English language words, and use proper Urdu punctuation (۔ ، ؟). English medical terms are allowed when needed.
+- For Urdu script formatting: write right-to-left and keep each line, heading, bullet, numbering, and emoji right-aligned.
 
 Safety:
 - Only include emergency guidance for true red-flag symptoms.
@@ -144,6 +152,73 @@ _ROMAN_URDU_HINTS = {
     "lekin",
     "aur",
 }
+_MEDICAL_SCOPE_HINTS = {
+    "symptom",
+    "symptoms",
+    "pain",
+    "fever",
+    "cough",
+    "blood pressure",
+    "diabetes",
+    "medicine",
+    "medication",
+    "tablet",
+    "dose",
+    "disease",
+    "treatment",
+    "diagnosis",
+    "doctor",
+    "hospital",
+    "allergy",
+    "infection",
+    "surgery",
+    "test report",
+    "lab report",
+    "health",
+    "medical",
+    "بخار",
+    "کھانسی",
+    "درد",
+    "دوائی",
+    "ادویات",
+    "علاج",
+    "تشخیص",
+    "طبی",
+    "صحت",
+    "بلڈ پریشر",
+    "ذیابیطس",
+    "بیماری",
+}
+_NON_MEDICAL_SCOPE_HINTS = {
+    "movie",
+    "music",
+    "song",
+    "football",
+    "cricket",
+    "match",
+    "stock",
+    "crypto",
+    "bitcoin",
+    "weather",
+    "recipe",
+    "travel",
+    "programming",
+    "code",
+    "javascript",
+    "python",
+    "politics",
+    "history",
+    "gaming",
+    "entertainment",
+    "news",
+    "شو",
+    "فلم",
+    "موسیقی",
+    "کرکٹ",
+    "موسم",
+    "سیاست",
+    "گیم",
+}
 
 
 def _contains_urdu_script(text: str | None) -> bool:
@@ -157,8 +232,8 @@ def _is_likely_roman_urdu(text: str | None) -> bool:
     tokens = _ROMAN_URDU_TOKEN_RE.findall(value)
     if not tokens:
         return False
-    hints = sum(1 for token in tokens if token in _ROMAN_URDU_HINTS)
-    return hints >= 2
+    hint_hits = sum(1 for token in tokens if token in _ROMAN_URDU_HINTS)
+    return hint_hits >= 2
 
 
 def _detect_turn_language_mode(user_message: str) -> str:
@@ -169,20 +244,33 @@ def _detect_turn_language_mode(user_message: str) -> str:
     return "english"
 
 
+def _detect_domain_mode(user_message: str) -> str:
+    lowered = str(user_message or "").lower()
+    has_medical = any(hint in lowered for hint in _MEDICAL_SCOPE_HINTS)
+    has_non_medical = any(hint in lowered for hint in _NON_MEDICAL_SCOPE_HINTS)
+    if has_medical and has_non_medical:
+        return "mixed"
+    if has_medical:
+        return "medical"
+    return "non_medical"
+
+
 def _build_turn_language_instruction(language_mode: str) -> str:
     if language_mode == "urdu_script":
         return (
             "STRICT LANGUAGE LOCK (CURRENT TURN): latest user message is Urdu script. "
             "Reply ONLY in Urdu script. Never switch to English or Roman Urdu. "
-            "Use natural Urdu wording and proper Urdu punctuation (۔ ، ؟). "
-            "Formatting rule: every new line, heading, bullet, number, and emoji must start from the LEFTMOST side "
-            "and remain left-aligned."
+            "Use richer, natural Urdu vocabulary and proper Urdu punctuation (۔ ، ؟). "
+            "Avoid Hindi or other non-English language words; English medical terms are allowed. "
+            "Gender voice lock: as a female doctor, use feminine self-reference and feminine verb forms when referring to yourself or your advice. "
+            "Formatting lock: write RTL and keep each line, heading, bullet, numbering, and emoji right-aligned."
         )
     if language_mode == "roman_urdu":
         return (
             "STRICT LANGUAGE LOCK (CURRENT TURN): latest user message is Roman Urdu. "
             "Reply ONLY in Roman Urdu (Latin letters). "
-            "Do not use Urdu script for this turn."
+            "Gender voice lock: as a female doctor, use feminine self-reference and feminine verb forms when referring to yourself or your advice (e.g., 'main ... karti hoon'). "
+            "Do not use Urdu script in this turn."
         )
     return (
         "STRICT LANGUAGE LOCK (CURRENT TURN): latest user message is English. "
@@ -190,18 +278,35 @@ def _build_turn_language_instruction(language_mode: str) -> str:
     )
 
 
-def _inject_turn_language_instruction(
+def _build_domain_scope_instruction(domain_mode: str) -> str:
+    if domain_mode == "mixed":
+        return (
+            "DOMAIN PRIORITY LOCK: this turn contains both medical and non-medical content. "
+            "Answer medical parts first with clear priority. Then answer non-medical parts briefly. "
+            "End by inviting the user to ask more medical-related questions."
+        )
+    if domain_mode == "non_medical":
+        return (
+            "DOMAIN SCOPE LOCK: this turn is outside core medical scope. "
+            "Provide a brief helpful response, then guide the user back to medical-related questions."
+        )
+    return (
+        "DOMAIN SCOPE LOCK: this turn is medical. Prioritize complete medical guidance."
+    )
+
+
+def _inject_turn_instruction(
     messages: list[dict[str, Any]],
     instruction: str,
 ) -> list[dict[str, Any]]:
-    instruction_text = _clean_text(instruction, max_len=1200)
+    text = _clean_text(instruction, max_len=1500)
     copied = [dict(item) for item in messages]
-    if not instruction_text:
+    if not text:
         return copied
-    system_item = {"role": "system", "content": instruction_text}
+    injected = {"role": "system", "content": text}
     if copied and str(copied[-1].get("role")) == "user":
-        return [*copied[:-1], system_item, copied[-1]]
-    copied.append(system_item)
+        return [*copied[:-1], injected, copied[-1]]
+    copied.append(injected)
     return copied
 
 
@@ -657,6 +762,7 @@ async def chat_with_groq(
     user_message = str(message or "").strip()
     turn_language_mode = _detect_turn_language_mode(user_message)
     turn_language_instruction = _build_turn_language_instruction(turn_language_mode)
+    domain_scope_instruction = _build_domain_scope_instruction(_detect_domain_mode(user_message))
     attachment_context, image_urls = _build_attachment_context(attachments)
     storage_user_message = _build_storage_user_message(user_message, attachment_context)
     emergency_probe_text = "\n".join(part for part in [user_message, attachment_context] if part).strip()
@@ -672,7 +778,8 @@ async def chat_with_groq(
         attachment_context=attachment_context,
         image_urls=image_urls,
     )
-    request_messages = _inject_turn_language_instruction(request_messages, turn_language_instruction)
+    request_messages = _inject_turn_instruction(request_messages, turn_language_instruction)
+    request_messages = _inject_turn_instruction(request_messages, domain_scope_instruction)
 
     selected_model = _resolve_model_for_request(bool(image_urls))
     payload = {
@@ -691,7 +798,8 @@ async def chat_with_groq(
     except httpx.HTTPStatusError as exc:
         status_code = exc.response.status_code if exc.response is not None else 502
         if image_urls and status_code in {400, 404, 422}:
-            fallback_messages = _inject_turn_language_instruction(history, turn_language_instruction)
+            fallback_messages = _inject_turn_instruction(history, turn_language_instruction)
+            fallback_messages = _inject_turn_instruction(fallback_messages, domain_scope_instruction)
             fallback_payload = {
                 "model": GROQ_MODEL,
                 "messages": fallback_messages,
