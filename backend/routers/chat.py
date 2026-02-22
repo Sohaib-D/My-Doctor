@@ -1,6 +1,15 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Request
+from fastapi import Depends
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
+
+from backend.auth.deps import get_current_user_optional
+from backend.database.models import ChatMessage, User
+from backend.database.session import get_db
 
 from backend.schemas.chat import (
     ChatRequest,
@@ -27,10 +36,31 @@ from backend.services.groq_service import (
 
 
 router = APIRouter(tags=["chat"])
+logger = logging.getLogger(__name__)
+
+
+def _store_user_message_metric(
+    db: Session,
+    *,
+    session_id: str | None,
+    user: User | None,
+) -> None:
+    entry = ChatMessage(
+        user_id=user.id if user else None,
+        user_email=user.email.lower() if user else None,
+        session_id=(str(session_id or "").strip() or None),
+        role="user",
+    )
+    db.add(entry)
+    db.commit()
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(payload: ChatRequest):
+async def chat(
+    payload: ChatRequest,
+    current_user: User | None = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
     message = str(payload.message or "").strip()
     attachments = payload.attachments or []
     if not message and not attachments:
@@ -39,11 +69,21 @@ async def chat(payload: ChatRequest):
         raise HTTPException(status_code=400, detail="Message too long. Maximum 2000 characters.")
 
     try:
-        return await chat_with_groq(
+        response = await chat_with_groq(
             message,
             session_id=payload.session_id,
             attachments=attachments,
         )
+        try:
+            _store_user_message_metric(
+                db,
+                session_id=response.session_id,
+                user=current_user,
+            )
+        except SQLAlchemyError:
+            db.rollback()
+            logger.exception("Failed to store chat message metric.")
+        return response
     except HTTPException:
         raise
     except Exception as exc:

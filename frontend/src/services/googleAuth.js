@@ -2,20 +2,42 @@ import { toApiUrl } from './api';
 
 const POPUP_TIMEOUT_MS = 120000;
 
+function swapLoopbackHost(base) {
+  if (!base) {
+    return '';
+  }
+  if (base.includes('://localhost:')) {
+    return base.replace('://localhost:', '://127.0.0.1:');
+  }
+  if (base.includes('://127.0.0.1:')) {
+    return base.replace('://127.0.0.1:', '://localhost:');
+  }
+  return '';
+}
+
 function buildAllowedOrigins() {
   const rawApiBase = (import.meta.env.VITE_API_URL || '').trim();
   const origins = new Set();
 
-  if (typeof window !== 'undefined') {
-    origins.add(window.location.origin);
-  }
-
-  if (rawApiBase) {
+  const addOrigin = (value) => {
+    if (!value) {
+      return;
+    }
     try {
-      origins.add(new URL(rawApiBase).origin);
+      origins.add(new URL(value).origin);
     } catch {
       // ignore invalid URL
     }
+  };
+
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    addOrigin(window.location.origin);
+    addOrigin(swapLoopbackHost(window.location.origin));
+  }
+
+  if (rawApiBase) {
+    addOrigin(rawApiBase);
+    addOrigin(swapLoopbackHost(rawApiBase));
   }
 
   return origins;

@@ -100,6 +100,7 @@ class Settings:
     admin_panel_password_hash: str
     admin_session_hours: int
     google_client_id: str
+    google_redirect_uri: str
     sendgrid_from_name: str
     verify_url_base: str
     groq_daily_limit: int
@@ -173,6 +174,7 @@ def get_settings() -> Settings:
         admin_panel_password_hash=(os.getenv("ADMIN_PANEL_PASSWORD_HASH") or "").strip(),
         admin_session_hours=_as_int(os.getenv("ADMIN_SESSION_HOURS"), default=8, min_value=1, max_value=168),
         google_client_id=(os.getenv("GOOGLE_CLIENT_ID") or "").strip(),
+        google_redirect_uri=(os.getenv("GOOGLE_REDIRECT_URI") or "").strip(),
         sendgrid_from_name=(os.getenv("SENDGRID_FROM_NAME") or "My Doctor").strip(),
         verify_url_base=(os.getenv("VERIFY_URL_BASE") or "").strip(),
         groq_daily_limit=_as_int(os.getenv("GROQ_DAILY_LIMIT"), default=0, min_value=0, max_value=10_000_000),

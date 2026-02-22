@@ -6,7 +6,7 @@ from urllib.parse import parse_qs
 
 import bcrypt
 from fastapi import APIRouter, Depends, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from jose import JWTError, jwt
 from sqlalchemy import func, inspect, select, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -19,6 +19,7 @@ from backend.database.session import get_db
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 SESSION_COOKIE_NAME = "admin_session"
+ADMIN_TAB_SESSION_KEY = "pd_admin_tab_active"
 
 
 def _admin_email() -> str:
@@ -224,6 +225,8 @@ def _login_page(error: str | None = None) -> str:
   </form>
   <script>
     (function () {{
+      const TAB_SESSION_KEY = "{ADMIN_TAB_SESSION_KEY}";
+
       function clearAdminLoginFields() {{
         const form = document.getElementById("admin-login-form");
         const email = document.getElementById("admin-email");
@@ -241,8 +244,36 @@ def _login_page(error: str | None = None) -> str:
         }}
       }}
 
-      window.addEventListener("load", clearAdminLoginFields);
+      function prepareLoginPage() {{
+        fetch("/admin/logout-beacon", {{
+          method: "POST",
+          credentials: "same-origin",
+          keepalive: true,
+        }}).catch(function () {{
+          // Ignore network errors.
+        }});
+
+        try {{
+          window.sessionStorage.removeItem(TAB_SESSION_KEY);
+        }} catch (err) {{
+          // Ignore storage errors.
+        }}
+        clearAdminLoginFields();
+      }}
+
+      window.addEventListener("load", prepareLoginPage);
       window.addEventListener("pageshow", clearAdminLoginFields);
+
+      const form = document.getElementById("admin-login-form");
+      if (form) {{
+        form.addEventListener("submit", function () {{
+          try {{
+            window.sessionStorage.setItem(TAB_SESSION_KEY, "1");
+          }} catch (err) {{
+            // Ignore storage errors.
+          }}
+        }});
+      }}
     }})();
   </script>
 </div>"""
@@ -301,8 +332,15 @@ def _message_counts_by_user(db: Session, table: str | None, columns: set[str]) -
     if not table:
         return "none", {}, 0
 
+    role_filter_sql = ''
+    if "role" in columns:
+        role_filter_sql = ' WHERE LOWER("role") = \'user\''
+
     if "user_id" in columns:
-        query = text(f'SELECT "user_id"::text AS user_key, COUNT(*)::bigint AS total FROM "{table}" GROUP BY "user_id"')
+        query = text(
+            f'SELECT "user_id"::text AS user_key, COUNT(*)::bigint AS total '
+            f'FROM "{table}"{role_filter_sql} GROUP BY "user_id"'
+        )
         rows = db.execute(query).mappings().all()
         counts = {str(row["user_key"]): int(row["total"]) for row in rows if row["user_key"] is not None}
         return "user_id", counts, int(sum(counts.values()))
@@ -311,13 +349,13 @@ def _message_counts_by_user(db: Session, table: str | None, columns: set[str]) -
     if email_column:
         query = text(
             f'SELECT LOWER("{email_column}") AS user_key, COUNT(*)::bigint AS total '
-            f'FROM "{table}" GROUP BY LOWER("{email_column}")'
+            f'FROM "{table}"{role_filter_sql} GROUP BY LOWER("{email_column}")'
         )
         rows = db.execute(query).mappings().all()
         counts = {str(row["user_key"]): int(row["total"]) for row in rows if row["user_key"] is not None}
         return "email", counts, int(sum(counts.values()))
 
-    total_query = text(f'SELECT COUNT(*) FROM "{table}"')
+    total_query = text(f'SELECT COUNT(*) FROM "{table}"{role_filter_sql}')
     total = int(db.execute(total_query).scalar() or 0)
     return "none", {}, total
 
@@ -360,7 +398,7 @@ def _dashboard_page(
     body = f"""
 <div class="topbar">
   <h1>Admin Dashboard</h1>
-  <form method="post" action="/admin/logout">
+  <form method="post" action="/admin/logout" data-admin-logout="1">
     <button type="submit" class="secondary">Logout</button>
   </form>
 </div>
@@ -424,15 +462,54 @@ def _dashboard_page(
     </table>
   </div>
 </div>
+<script>
+  (function () {{
+    const TAB_SESSION_KEY = "{ADMIN_TAB_SESSION_KEY}";
+    const sessionIsActive = window.sessionStorage.getItem(TAB_SESSION_KEY) === "1";
+    if (!sessionIsActive) {{
+      fetch("/admin/logout-beacon", {{
+        method: "POST",
+        credentials: "same-origin",
+        keepalive: true,
+      }}).finally(function () {{
+        window.location.replace("/admin/login");
+      }});
+      return;
+    }}
+
+    const logoutForms = document.querySelectorAll('form[data-admin-logout="1"]');
+    logoutForms.forEach(function (form) {{
+      form.addEventListener("submit", function () {{
+        try {{
+          window.sessionStorage.removeItem(TAB_SESSION_KEY);
+        }} catch (err) {{
+          // Ignore storage errors.
+        }}
+      }});
+    }});
+
+    window.history.pushState({{ admin_dashboard: true }}, "", window.location.href);
+    window.addEventListener("popstate", function () {{
+      fetch("/admin/logout-beacon", {{
+        method: "POST",
+        credentials: "same-origin",
+        keepalive: true,
+      }}).finally(function () {{
+        window.location.replace("/admin/login");
+      }});
+    }});
+  }})();
+</script>
 """
     return _html_page("Admin Dashboard", body)
 
 
 @router.get("/login", response_class=HTMLResponse)
 def admin_login_page(request: Request) -> HTMLResponse:
+    response = HTMLResponse(_login_page())
     if _get_authenticated_admin(request):
-        return RedirectResponse(url="/admin/dashboard", status_code=status.HTTP_303_SEE_OTHER)
-    return HTMLResponse(_login_page())
+        response.delete_cookie(SESSION_COOKIE_NAME)
+    return response
 
 
 @router.post("/login")
@@ -556,6 +633,13 @@ def admin_logout_get() -> RedirectResponse:
 @router.post("/logout")
 def admin_logout_post() -> RedirectResponse:
     response = RedirectResponse(url="/admin/login", status_code=status.HTTP_303_SEE_OTHER)
+    response.delete_cookie(SESSION_COOKIE_NAME)
+    return response
+
+
+@router.post("/logout-beacon", include_in_schema=False)
+def admin_logout_beacon() -> Response:
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
     response.delete_cookie(SESSION_COOKIE_NAME)
     return response
 

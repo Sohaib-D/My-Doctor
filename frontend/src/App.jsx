@@ -312,7 +312,7 @@ function applyAppearanceTheme(appearance) {
   root.dataset.appearance = normalizedAppearance;
   root.dataset.theme = mode;
   root.style.colorScheme = mode;
-  root.style.backgroundColor = mode === 'dark' ? '#0f172a' : '#f8fafc';
+  root.style.backgroundColor = mode === 'dark' ? '#0f172a' : '#edf1f8';
 }
 
 function getLocalDateKey(now = new Date()) {
@@ -726,6 +726,8 @@ export default function App() {
   const sidebarResizeStartWidthRef = useRef(SIDEBAR_OPEN_WIDTH);
   const personalizationReadyRef = useRef(false);
   const personalizationLastSyncedRef = useRef('');
+  const sendSequenceRef = useRef(0);
+  const conversationResetRef = useRef(0);
 
   const authenticated = Boolean(token);
   const inGuestMode = guestMode && !authenticated;
@@ -2151,8 +2153,15 @@ export default function App() {
     setPendingVerificationLogin(createPendingVerificationLogin());
   }, [stopDictation, stopSpeaking]);
 
+  const invalidatePendingSend = useCallback(() => {
+    sendSequenceRef.current += 1;
+    conversationResetRef.current += 1;
+    setSending(false);
+  }, []);
+
   const handleSelectSession = useCallback(
     async (sessionId) => {
+      invalidatePendingSend();
       setSessionMenuOpenId('');
       setActiveSessionId(sessionId);
       await loadHistory(sessionId);
@@ -2160,10 +2169,11 @@ export default function App() {
         closeSidebar();
       }
     },
-    [closeSidebar, isMobileLayout, loadHistory]
+    [closeSidebar, invalidatePendingSend, isMobileLayout, loadHistory]
   );
 
   const handleNewChat = useCallback(() => {
+    invalidatePendingSend();
     setSessionMenuOpenId('');
     setActiveSessionId('');
     setMessages([]);
@@ -2183,7 +2193,7 @@ export default function App() {
     if (isMobileLayout) {
       closeSidebar();
     }
-  }, [closeSidebar, isMobileLayout]);
+  }, [closeSidebar, invalidatePendingSend, isMobileLayout]);
 
   const handleToggleSearchChats = useCallback(() => {
     setSearchChatsOpen((prev) => {
@@ -2592,10 +2602,14 @@ export default function App() {
     setComposerAttachmentMenuOpen(false);
     setSending(true);
     setChatError('');
+    const requestSequence = sendSequenceRef.current + 1;
+    sendSequenceRef.current = requestSequence;
+    const requestConversationVersion = conversationResetRef.current;
 
     try {
       const languageProbe = draft.trim() || text;
-      const language = containsUrdu(languageProbe) ? 'ur' : chatLanguage;
+      const languageVariant = resolveSpeechVariant(languageProbe, chatLanguage);
+      const language = languageVariant === 'ur' ? 'ur' : 'en';
       let profilePayload = undefined;
       const personalizationPayload = normalizePersonalization(effectivePersonalization);
       personalizationPayload.recent_chat_summaries =
@@ -2633,6 +2647,12 @@ export default function App() {
         },
         token
       );
+      if (
+        requestSequence !== sendSequenceRef.current ||
+        requestConversationVersion !== conversationResetRef.current
+      ) {
+        return;
+      }
       const currentId = result.session_id;
       if (inGuestMode) {
         if (currentId) {
@@ -2661,12 +2681,20 @@ export default function App() {
         await loadHistory(currentId);
       }
     } catch (error) {
+      if (
+        requestSequence !== sendSequenceRef.current ||
+        requestConversationVersion !== conversationResetRef.current
+      ) {
+        return;
+      }
       setMessages((prev) =>
         prev.map((message) => (message.id === temporaryId ? { ...message, failed: true } : message))
       );
       setChatError(error.message);
     } finally {
-      setSending(false);
+      if (requestSequence === sendSequenceRef.current) {
+        setSending(false);
+      }
     }
   }, [
     activeMode,
@@ -2830,7 +2858,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={toggleSidebar}
-                    className="mobile-touch-target inline-flex h-10 w-10 items-center justify-center rounded-lg border border-emerald-300/30 bg-emerald-300/15 text-emerald-200 hover:bg-emerald-300/20 hover:text-emerald-100"
+                    className="pd-stethoscope-emerald mobile-touch-target inline-flex h-10 w-10 items-center justify-center rounded-lg border border-emerald-300/30 bg-emerald-300/15 text-emerald-200 hover:bg-emerald-300/20 hover:text-emerald-100"
                     aria-label="Open sidebar"
                     title="Open sidebar"
                   >
@@ -2865,10 +2893,10 @@ export default function App() {
                 <div>
                   <div className="mb-3 flex items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2">
-                      <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-white/5 text-cyan-200">
+                      <div className="pd-stethoscope-cyan inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-white/5 text-cyan-200">
                         <Stethoscope size={16} />
                       </div>
-                      <p className="truncate text-sm font-semibold text-slate-100">Personal Doctor AI</p>
+                      <p className="pd-logo-text truncate text-sm font-semibold text-slate-100">Personal Doctor AI</p>
                     </div>
                     <button
                       type="button"
@@ -3220,7 +3248,7 @@ export default function App() {
                   <div className="relative mx-auto w-full max-w-5xl overflow-hidden rounded-3xl border border-white/10 bg-slate-950/20 px-4 py-5 sm:px-6 sm:py-7">
                     <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_35%,rgba(167,243,208,0.08),transparent_55%)]" />
                     <div className="relative mx-auto flex max-w-4xl flex-col items-center text-center">
-                      <div className="inline-flex h-[72px] w-[72px] items-center justify-center rounded-2xl border border-emerald-300/30 bg-emerald-300/15 text-emerald-200 shadow-[0_10px_24px_rgba(16,185,129,0.16)] sm:h-[80px] sm:w-[80px]">
+                      <div className="pd-stethoscope-emerald inline-flex h-[72px] w-[72px] items-center justify-center rounded-2xl border border-emerald-300/30 bg-emerald-300/15 text-emerald-200 shadow-[0_10px_24px_rgba(16,185,129,0.16)] sm:h-[80px] sm:w-[80px]">
                         <Stethoscope size={30} strokeWidth={1.8} />
                       </div>
                       <h2 className="mt-4 text-2xl font-semibold tracking-tight text-violet-100 sm:mt-5 sm:text-3xl">
@@ -3256,27 +3284,17 @@ export default function App() {
               {sortedMessages.map((message) => {
                 const messageText = normalizeMessageText(message);
                 const isUrduScriptMessage = containsUrdu(messageText);
-                const urduScriptProps = isUrduScriptMessage
-                  ? {
-                      dir: 'ltr',
-                      style: {
-                        direction: 'ltr',
-                        textAlign: 'left',
-                        unicodeBidi: 'plaintext',
-                      },
-                    }
-                  : {};
+                const urduScriptClass = isUrduScriptMessage ? 'urdu-left-align' : '';
 
                 return (
                   <div key={message.id} className={`message-bubble max-w-3xl rounded-2xl px-4 py-3 break-words ${message.role === 'user' ? 'ml-auto bg-emerald-500/15 text-emerald-100' : 'mr-auto border border-white/10 bg-slate-800/80 text-slate-100'}`}>
                   {message.role === 'assistant' ? (
                     <div
-                      className="message-rich text-sm leading-6"
-                      {...urduScriptProps}
+                      className={`message-rich text-sm leading-6 ${urduScriptClass}`.trim()}
                       dangerouslySetInnerHTML={{ __html: renderMessageHtml(message) }}
                     />
                   ) : (
-                    <p className="whitespace-pre-wrap text-sm leading-6" {...urduScriptProps}>{messageText}</p>
+                    <p className={`whitespace-pre-wrap text-sm leading-6 ${urduScriptClass}`.trim()}>{messageText}</p>
                   )}
                   <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
                     <span>{message.role === 'user' ? ui.youLabel : ui.assistantLabel}</span>
@@ -3326,15 +3344,17 @@ export default function App() {
               {sending && (
                 <div className="mr-auto px-1 py-1 text-slate-100 break-words">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <Stethoscope
-                      size={20}
-                      strokeWidth={1.9}
-                      style={{
-                        color: typingIndicatorLogoIcon,
-                        filter: typingIndicatorLogoGlow,
-                        flexShrink: 0,
-                      }}
-                    />
+                    <div className="pd-stethoscope-emerald inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 bg-white/5">
+                      <Stethoscope
+                        size={20}
+                        strokeWidth={1.9}
+                        style={{
+                          color: typingIndicatorLogoIcon,
+                          filter: typingIndicatorLogoGlow,
+                          flexShrink: 0,
+                        }}
+                      />
+                    </div>
                     <div style={{ display: 'flex', gap: '5px', alignItems: 'center', paddingTop: '2px' }}>
                       <span className="dr-amna-dot" style={{ background: typingIndicatorDotColor }}></span>
                       <span className="dr-amna-dot" style={{ background: typingIndicatorDotColor }}></span>

@@ -77,6 +77,21 @@ def _public_user(user: User) -> dict:
     }
 
 
+def _resolve_google_redirect_uri(request: Request) -> str:
+    settings = get_settings()
+    configured = (settings.google_redirect_uri or "").strip()
+    if configured:
+        return configured
+
+    forwarded_host = str(request.headers.get("x-forwarded-host") or "").split(",")[0].strip()
+    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
+    if forwarded_host:
+        scheme = forwarded_proto or request.url.scheme or "https"
+        return f"{scheme}://{forwarded_host}/auth/google/callback"
+
+    return str(request.url_for("auth_google_callback"))
+
+
 def _auth_payload(user: User) -> dict:
     token = create_access_token(str(user.id))
     return {
@@ -279,7 +294,7 @@ def google_auth_start(request: Request, state: str | None = None) -> RedirectRes
     if not settings.google_client_id:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="GOOGLE_CLIENT_ID not set.")
 
-    callback_url = str(request.url_for("auth_google_callback"))
+    callback_url = _resolve_google_redirect_uri(request)
     query = {
         "client_id": settings.google_client_id,
         "redirect_uri": callback_url,

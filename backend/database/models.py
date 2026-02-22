@@ -31,3 +31,19 @@ class Feedback(Base):
         nullable=False,
         server_default=func.now(),
     )
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    user_email: Mapped[str | None] = mapped_column(String(320), index=True, nullable=True)
+    session_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="user", server_default=text("'user'"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        index=True,
+    )

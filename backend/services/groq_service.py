@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import re
 import secrets
 import time
 from asyncio import Lock
@@ -43,7 +44,7 @@ Language rule:
 - Determine reply language from the latest user message in the current turn.
 - English -> English
 - Urdu script -> Urdu script (Each new line or old continued line should strictly be Left-aligned with proper Urdu punctuation)
-- Roman Urdu -> Roman Urdu
+- Roman Urdu -> Roman Urdu (most importantly, do not reply in Urdu script if user is writing in Roman Urdu)
 - Never switch language on your own. If user writes English or Roman Urdu, do not reply in Urdu script unless user explicitly asks.
 - In Urdu script replies, write doctor name as "ڈاکٹر آمنہ" only (do not append "Dr. Amna").
 - For Urdu script replies: write pure Urdu script (no Hindi or other languages), keep wording naturally Urdu, and use proper Urdu punctuation (۔ ، ؟).
@@ -103,6 +104,125 @@ EMERGENCY_KEYWORDS = [
     "khudkushi",
     "zyada khoon",
 ]
+
+_URDU_SCRIPT_RE = re.compile(r"[\u0600-\u06FF]")
+_ROMAN_URDU_TOKEN_RE = re.compile(r"[a-z']+")
+_ROMAN_URDU_HINTS = {
+    "aap",
+    "ap",
+    "mujhe",
+    "mujhy",
+    "mujh",
+    "kya",
+    "kia",
+    "kyun",
+    "kyu",
+    "hai",
+    "hain",
+    "ho",
+    "hoon",
+    "mera",
+    "meri",
+    "mere",
+    "dard",
+    "bukhar",
+    "khansi",
+    "saans",
+    "tabiyat",
+    "thakan",
+    "kamzori",
+    "dawai",
+    "ilaaj",
+    "masla",
+    "pet",
+    "pait",
+    "sar",
+    "sir",
+    "behtar",
+    "theek",
+    "agar",
+    "lekin",
+    "aur",
+}
+
+
+def _contains_urdu_script(text: str | None) -> bool:
+    return bool(_URDU_SCRIPT_RE.search(str(text or "")))
+
+
+def _is_likely_roman_urdu(text: str | None) -> bool:
+    value = str(text or "").strip().lower()
+    if not value or _contains_urdu_script(value):
+        return False
+    tokens = _ROMAN_URDU_TOKEN_RE.findall(value)
+    if not tokens:
+        return False
+    hints = sum(1 for token in tokens if token in _ROMAN_URDU_HINTS)
+    return hints >= 2
+
+
+def _detect_turn_language_mode(user_message: str) -> str:
+    if _contains_urdu_script(user_message):
+        return "urdu_script"
+    if _is_likely_roman_urdu(user_message):
+        return "roman_urdu"
+    return "english"
+
+
+def _build_turn_language_instruction(language_mode: str) -> str:
+    if language_mode == "urdu_script":
+        return (
+            "STRICT LANGUAGE LOCK (CURRENT TURN): latest user message is Urdu script. "
+            "Reply ONLY in Urdu script. Never switch to English or Roman Urdu. "
+            "Use natural Urdu wording and proper Urdu punctuation (۔ ، ؟). "
+            "Formatting rule: every new line, heading, bullet, number, and emoji must start from the LEFTMOST side "
+            "and remain left-aligned."
+        )
+    if language_mode == "roman_urdu":
+        return (
+            "STRICT LANGUAGE LOCK (CURRENT TURN): latest user message is Roman Urdu. "
+            "Reply ONLY in Roman Urdu (Latin letters). "
+            "Do not use Urdu script for this turn."
+        )
+    return (
+        "STRICT LANGUAGE LOCK (CURRENT TURN): latest user message is English. "
+        "Reply ONLY in English for this turn."
+    )
+
+
+def _inject_turn_language_instruction(
+    messages: list[dict[str, Any]],
+    instruction: str,
+) -> list[dict[str, Any]]:
+    instruction_text = _clean_text(instruction, max_len=1200)
+    copied = [dict(item) for item in messages]
+    if not instruction_text:
+        return copied
+    system_item = {"role": "system", "content": instruction_text}
+    if copied and str(copied[-1].get("role")) == "user":
+        return [*copied[:-1], system_item, copied[-1]]
+    copied.append(system_item)
+    return copied
+
+
+def _build_emergency_prefix(language_mode: str) -> str:
+    if language_mode == "urdu_script":
+        return (
+            "🚨 **ہنگامی انتباہ**\n"
+            "یہ طبی ایمرجنسی ہو سکتی ہے۔\n"
+            "فوراً ایمرجنسی سروسز (**911** یا مقامی ایمرجنسی نمبر) پر کال کریں۔\n\n"
+        )
+    if language_mode == "roman_urdu":
+        return (
+            "🚨 **Emergency Alert**\n"
+            "Yeh medical emergency ho sakti hai.\n"
+            "Foran emergency services (**911** ya local emergency number) par call karein.\n\n"
+        )
+    return (
+        "🚨 **Emergency Alert**\n"
+        "This may be a medical emergency.\n"
+        "Please call emergency services (**911** or local emergency number) immediately.\n\n"
+    )
 
 _SYSTEM_MESSAGES = [
     {"role": "system", "content": SYSTEM_PROMPT},
@@ -535,6 +655,8 @@ async def chat_with_groq(
     attachments: list[ChatAttachment] | None = None,
 ) -> ChatResponse:
     user_message = str(message or "").strip()
+    turn_language_mode = _detect_turn_language_mode(user_message)
+    turn_language_instruction = _build_turn_language_instruction(turn_language_mode)
     attachment_context, image_urls = _build_attachment_context(attachments)
     storage_user_message = _build_storage_user_message(user_message, attachment_context)
     emergency_probe_text = "\n".join(part for part in [user_message, attachment_context] if part).strip()
@@ -550,6 +672,7 @@ async def chat_with_groq(
         attachment_context=attachment_context,
         image_urls=image_urls,
     )
+    request_messages = _inject_turn_language_instruction(request_messages, turn_language_instruction)
 
     selected_model = _resolve_model_for_request(bool(image_urls))
     payload = {
@@ -568,9 +691,10 @@ async def chat_with_groq(
     except httpx.HTTPStatusError as exc:
         status_code = exc.response.status_code if exc.response is not None else 502
         if image_urls and status_code in {400, 404, 422}:
+            fallback_messages = _inject_turn_language_instruction(history, turn_language_instruction)
             fallback_payload = {
                 "model": GROQ_MODEL,
-                "messages": history,
+                "messages": fallback_messages,
                 "temperature": 0.45,
                 "max_tokens": 1024,
             }
@@ -628,13 +752,7 @@ async def chat_with_groq(
     ai_reply = _extract_assistant_text(data["choices"][0]["message"]["content"])
     await _append_assistant_message(active_session_id, ai_reply)
 
-    emergency_prefix = ""
-    if is_emergency:
-        emergency_prefix = (
-            "🚨 **Emergency Alert**\n"
-            "This may be a medical emergency.\n"
-            "Please call emergency services (**911** or local emergency number) immediately.\n\n"
-        )
+    emergency_prefix = _build_emergency_prefix(turn_language_mode) if is_emergency else ""
 
     final_response = f"{emergency_prefix}{ai_reply}".strip()
     return ChatResponse(response=final_response, session_id=active_session_id, emergency=is_emergency)

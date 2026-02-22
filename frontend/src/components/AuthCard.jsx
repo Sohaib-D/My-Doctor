@@ -85,7 +85,7 @@ export default function AuthCard({
       <MedicalBackground opacity={0.25} />
       <div className="relative z-10 w-full max-w-md rounded-2xl border border-white/10 bg-slate-900/90 p-7 shadow-chat backdrop-blur-xl">
         <div className="mb-6 flex items-center gap-3">
-          <div className="rounded-lg bg-emerald-500/20 p-2 text-emerald-300">
+          <div className="pd-stethoscope-emerald rounded-lg bg-emerald-500/20 p-2 text-emerald-300">
             <Stethoscope size={18} />
           </div>
           <div>

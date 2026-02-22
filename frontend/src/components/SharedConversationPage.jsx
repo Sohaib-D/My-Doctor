@@ -3,7 +3,7 @@ import { Loader2, Stethoscope } from 'lucide-react';
 
 import MedicalBackground from './MedicalBackground';
 import { api } from '../services/api';
-import { formatTime, normalizeMessageText, renderMessageHtml } from '../utils/chat';
+import { containsUrdu, formatTime, normalizeMessageText, renderMessageHtml } from '../utils/chat';
 
 export default function SharedConversationPage({ shareId }) {
   const [loading, setLoading] = useState(true);
@@ -41,7 +41,7 @@ export default function SharedConversationPage({ shareId }) {
       <MedicalBackground />
       <header className="relative z-10 border-b border-white/10 bg-slate-900/85 px-4 py-4 backdrop-blur">
         <div className="mx-auto flex w-full max-w-4xl items-center gap-3">
-          <div className="rounded-lg bg-emerald-500/20 p-2 text-emerald-300">
+          <div className="pd-stethoscope-emerald rounded-lg bg-emerald-500/20 p-2 text-emerald-300">
             <Stethoscope size={18} />
           </div>
           <div>
@@ -63,26 +63,32 @@ export default function SharedConversationPage({ shareId }) {
           )}
           {error && <p className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">{error}</p>}
 
-          {(conversation?.messages || []).map((message) => (
-            <div
-              key={message.id}
-              className={`max-w-3xl rounded-2xl px-4 py-3 ${
-                message.role === 'user'
-                  ? 'ml-auto bg-emerald-500/15 text-emerald-100'
-                  : 'mr-auto border border-white/10 bg-slate-800/80 text-slate-100'
-              }`}
-            >
-              {message.role === 'assistant' ? (
-                <div
-                  className="message-rich text-sm leading-6"
-                  dangerouslySetInnerHTML={{ __html: renderMessageHtml(message) }}
-                />
-              ) : (
-                <p className="whitespace-pre-wrap text-sm leading-6">{normalizeMessageText(message)}</p>
-              )}
-              <div className="mt-2 text-[11px] text-slate-400">{formatTime(message.created_at)}</div>
-            </div>
-          ))}
+          {(conversation?.messages || []).map((message) => {
+            const messageText = normalizeMessageText(message);
+            const urduScriptClass = containsUrdu(messageText) ? 'urdu-left-align' : '';
+            return (
+              <div
+                key={message.id}
+                className={`max-w-3xl rounded-2xl px-4 py-3 ${
+                  message.role === 'user'
+                    ? 'ml-auto bg-emerald-500/15 text-emerald-100'
+                    : 'mr-auto border border-white/10 bg-slate-800/80 text-slate-100'
+                }`}
+              >
+                {message.role === 'assistant' ? (
+                  <div
+                    className={`message-rich text-sm leading-6 ${urduScriptClass}`.trim()}
+                    dangerouslySetInnerHTML={{ __html: renderMessageHtml(message) }}
+                  />
+                ) : (
+                  <p className={`whitespace-pre-wrap text-sm leading-6 ${urduScriptClass}`.trim()}>
+                    {messageText}
+                  </p>
+                )}
+                <div className="mt-2 text-[11px] text-slate-400">{formatTime(message.created_at)}</div>
+              </div>
+            );
+          })}
         </div>
       </main>
 
