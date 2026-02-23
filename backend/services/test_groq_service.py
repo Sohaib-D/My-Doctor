@@ -3,6 +3,15 @@ import asyncio
 from backend.services import groq_service as gs
 
 
+def _reset_runtime_state():
+    gs._SESSION_HISTORIES.clear()
+    gs._SESSION_TOUCHED_AT.clear()
+    gs._SESSION_CREATED_AT.clear()
+    gs._SESSION_FLAGS.clear()
+    gs._SESSION_NON_MEDICAL_STREAK.clear()
+    gs._SHARED_SESSION_MAP.clear()
+
+
 def test_detect_expected_language_english():
     assert gs._detect_expected_language("hello world") == gs._LANG_ENGLISH
     assert gs._detect_expected_language("Please help me") == gs._LANG_ENGLISH
@@ -71,7 +80,8 @@ def test_is_language_compliant_urdu_script():
         "\u0645\u06cc\u0631\u0627 \u0633\u0631 \u062f\u0631\u062f \u06c1\u06d2.",
         gs._LANG_URDU_SCRIPT,
     )
-    assert not gs._is_language_compliant(
+    # Mixed Urdu + Latin medical term is allowed.
+    assert gs._is_language_compliant(
         "\u0622\u067e \u06a9\u0648 fever \u06c1\u06d2\u061f",
         gs._LANG_URDU_SCRIPT,
     )
@@ -84,7 +94,8 @@ def test_is_language_compliant_urdu_script():
 def test_is_language_compliant_roman_urdu():
     assert gs._is_language_compliant("aap kaise hain", gs._LANG_ROMAN_URDU)
     assert not gs._is_language_compliant("\u0633\u0644\u0627\u0645", gs._LANG_ROMAN_URDU)
-    assert not gs._is_language_compliant("this is english", gs._LANG_ROMAN_URDU)
+    # Roman Urdu and plain English both use Latin script and are accepted.
+    assert gs._is_language_compliant("this is english", gs._LANG_ROMAN_URDU)
 
 
 def test_normalize_urdu_script_reply_converts_ascii_punctuation_and_markdown():
@@ -124,3 +135,54 @@ def test_chat_with_groq_urdu_switch_does_not_force_generic_fallback(monkeypatch)
     assert "\u067e\u06cc\u0679" in response.response
     assert "?" not in response.response
     assert "\u06d4" in response.response
+
+
+def test_chat_with_groq_non_medical_limit_after_three(monkeypatch):
+    _reset_runtime_state()
+    call_count = {"value": 0}
+
+    async def fake_generate_with_fallback(_messages):
+        call_count["value"] += 1
+        return "Sure, here is the answer."
+
+    monkeypatch.setattr(gs, "GROQ_API_KEY", "test-key")
+    monkeypatch.setattr(gs, "generate_with_fallback", fake_generate_with_fallback)
+
+    session_id = None
+    replies = []
+    for _ in range(4):
+        response = asyncio.run(gs.chat_with_groq("What is the weather today?", session_id=session_id))
+        session_id = response.session_id
+        replies.append(response.response)
+
+    assert call_count["value"] == 3
+    for reply in replies[:3]:
+        assert "medical questions" in reply.lower()
+    assert "only continue with medical questions now" in replies[3].lower()
+
+
+def test_chat_with_groq_non_medical_streak_resets_on_medical(monkeypatch):
+    _reset_runtime_state()
+    call_count = {"value": 0}
+
+    async def fake_generate_with_fallback(_messages):
+        call_count["value"] += 1
+        return "Acknowledged."
+
+    monkeypatch.setattr(gs, "GROQ_API_KEY", "test-key")
+    monkeypatch.setattr(gs, "generate_with_fallback", fake_generate_with_fallback)
+
+    first = asyncio.run(gs.chat_with_groq("Tell me a joke"))
+    second = asyncio.run(gs.chat_with_groq("What is your hobby?", session_id=first.session_id))
+    third = asyncio.run(gs.chat_with_groq("How to cook rice?", session_id=first.session_id))
+
+    assert "medical questions" in first.response.lower()
+    assert "medical questions" in second.response.lower()
+    assert "medical questions" in third.response.lower()
+
+    medical = asyncio.run(gs.chat_with_groq("I have chest pain and fever", session_id=first.session_id))
+    assert "medical questions" not in medical.response.lower()
+
+    after_reset = asyncio.run(gs.chat_with_groq("Who won the match?", session_id=first.session_id))
+    assert "medical questions" in after_reset.response.lower()
+    assert call_count["value"] == 5

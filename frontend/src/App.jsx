@@ -21,7 +21,7 @@ import {
   Pill,
   Pin,
   Plus,
-  RefreshCcw,
+  RefreshCw,
   Search,
   SendHorizontal,
   Settings,
@@ -526,10 +526,10 @@ export default function App() {
   const [composerAttachmentMenuOpen, setComposerAttachmentMenuOpen] = useState(false);
   const [cameraCaptureOpen, setCameraCaptureOpen] = useState(false);
   const [cameraCaptureBusy, setCameraCaptureBusy] = useState(false);
-  const [cameraSwitchBusy, setCameraSwitchBusy] = useState(false);
-  const [cameraCanSwitch, setCameraCanSwitch] = useState(false);
-  const [cameraFacingMode, setCameraFacingMode] = useState('environment');
   const [cameraCaptureError, setCameraCaptureError] = useState('');
+  const [cameraFacingMode, setCameraFacingMode] = useState('environment');
+  const [cameraCanSwitch, setCameraCanSwitch] = useState(false);
+  const [cameraSwitchBusy, setCameraSwitchBusy] = useState(false);
   const [dictationSupported, setDictationSupported] = useState(false);
   const [dictationState, setDictationState] = useState('idle');
   const [voices, setVoices] = useState([]);
@@ -799,37 +799,21 @@ export default function App() {
     if (cameraVideoRef.current) cameraVideoRef.current.srcObject = null;
   }, []);
 
-  const bindCameraStreamToVideo = useCallback(async (stream) => {
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      const videoElement = cameraVideoRef.current;
-      if (videoElement) {
-        videoElement.srcObject = stream;
-        videoElement.muted = true;
-        videoElement.setAttribute('playsinline', 'true');
-        const maybePlay = videoElement.play?.();
-        if (maybePlay && typeof maybePlay.catch === 'function') {
-          maybePlay.catch(() => {});
-        }
-        return;
-      }
-      await new Promise((resolve) => window.setTimeout(resolve, 40));
-    }
-  }, []);
-
   const startCameraCaptureStream = useCallback(async (preferredFacingMode = 'environment') => {
-    if (!navigator.mediaDevices?.getUserMedia) throw new Error('camera-not-supported');
-
+    const normalizedFacingMode = preferredFacingMode === 'user' ? 'user' : 'environment';
+    const alternateFacingMode = normalizedFacingMode === 'environment' ? 'user' : 'environment';
     stopCameraCaptureStream();
 
-    const constraintAttempts = [
-      { video: { facingMode: { exact: preferredFacingMode } }, audio: false },
-      { video: { facingMode: { ideal: preferredFacingMode } }, audio: false },
+    const attempts = [
+      { video: { facingMode: { exact: normalizedFacingMode } }, audio: false },
+      { video: { facingMode: { ideal: normalizedFacingMode } }, audio: false },
+      { video: { facingMode: { exact: alternateFacingMode } }, audio: false },
+      { video: { facingMode: { ideal: alternateFacingMode } }, audio: false },
       { video: true, audio: false },
     ];
-
     let stream = null;
     let lastError = null;
-    for (const constraints of constraintAttempts) {
+    for (const constraints of attempts) {
       try {
         stream = await navigator.mediaDevices.getUserMedia(constraints);
         break;
@@ -840,46 +824,37 @@ export default function App() {
     if (!stream) throw lastError || new Error('camera-open-failed');
 
     cameraStreamRef.current = stream;
+    const videoTrack = stream.getVideoTracks()[0] || null;
+    const settings = videoTrack && typeof videoTrack.getSettings === 'function' ? videoTrack.getSettings() : {};
+    const detectedFacingMode =
+      settings && (settings.facingMode === 'user' || settings.facingMode === 'environment')
+        ? settings.facingMode
+        : normalizedFacingMode;
+    const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+    const videoInputCount = devices.filter((device) => device.kind === 'videoinput').length;
+    setCameraFacingMode(detectedFacingMode);
+    setCameraCanSwitch(videoInputCount > 1);
     setCameraCaptureOpen(true);
-
-    const videoTrack = stream.getVideoTracks()[0];
-    const settings = videoTrack?.getSettings?.() || {};
-    const actualFacing = settings.facingMode;
-    if (actualFacing === 'user' || actualFacing === 'environment') {
-      setCameraFacingMode(actualFacing);
-    } else {
-      setCameraFacingMode(preferredFacingMode === 'user' ? 'user' : 'environment');
-    }
-
-    await bindCameraStreamToVideo(stream);
-
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoInputCount = devices.filter((device) => device.kind === 'videoinput').length;
-      setCameraCanSwitch(videoInputCount > 1);
-    } catch {
-      setCameraCanSwitch(false);
-    }
-  }, [bindCameraStreamToVideo, stopCameraCaptureStream]);
+    window.requestAnimationFrame(() => {
+      const videoElement = cameraVideoRef.current;
+      if (!videoElement) return;
+      videoElement.srcObject = stream;
+      const maybePlay = videoElement.play?.();
+      if (maybePlay && typeof maybePlay.catch === 'function') maybePlay.catch(() => {});
+    });
+  }, [stopCameraCaptureStream]);
 
   const closeCameraCapture = useCallback(() => {
-    setCameraCaptureOpen(false);
-    setCameraCaptureBusy(false);
-    setCameraSwitchBusy(false);
-    setCameraCaptureError('');
-    setCameraCanSwitch(false);
+    setCameraCaptureOpen(false); setCameraCaptureBusy(false); setCameraCaptureError('');
+    setCameraCanSwitch(false); setCameraSwitchBusy(false); setCameraFacingMode('environment');
     stopCameraCaptureStream();
   }, [stopCameraCaptureStream]);
 
   const openCameraCapture = useCallback(async () => {
     setComposerAttachmentMenuOpen(false);
-    setCameraCaptureError('');
-    if (isMobileLayout) {
-      if (captureImageInputRef.current) {
-        captureImageInputRef.current.click();
-      } else {
-        setChatError('Unable to open camera on this device.');
-      }
+    setCameraCaptureError(''); setCameraSwitchBusy(false);
+    if (!navigator.mediaDevices?.getUserMedia) {
+      if (captureImageInputRef.current) captureImageInputRef.current.click();
       return;
     }
     try {
@@ -888,24 +863,21 @@ export default function App() {
       if (captureImageInputRef.current) captureImageInputRef.current.click();
       else setChatError('Unable to access camera. Check camera permissions and try again.');
     }
-  }, [cameraFacingMode, isMobileLayout, startCameraCaptureStream]);
+  }, [cameraFacingMode, startCameraCaptureStream]);
 
   const handleSwitchCamera = useCallback(async () => {
-    if (cameraCaptureBusy || cameraSwitchBusy) return;
-    const currentFacing = cameraFacingMode === 'user' ? 'user' : 'environment';
-    const nextFacing = currentFacing === 'user' ? 'environment' : 'user';
-    setCameraSwitchBusy(true);
-    setCameraCaptureError('');
+    if (cameraCaptureBusy || cameraSwitchBusy || !cameraCaptureOpen || !cameraCanSwitch) return;
+    if (!navigator.mediaDevices?.getUserMedia) return;
+    const nextFacingMode = cameraFacingMode === 'user' ? 'environment' : 'user';
+    setCameraSwitchBusy(true); setCameraCaptureError('');
     try {
-      await startCameraCaptureStream(nextFacing);
+      await startCameraCaptureStream(nextFacingMode);
     } catch {
-      // Try restoring the previous stream if switching fails.
-      try { await startCameraCaptureStream(currentFacing); } catch {}
-      setCameraCaptureError('Unable to switch camera on this device.');
+      setCameraCaptureError('Unable to switch camera. Please try again.');
     } finally {
       setCameraSwitchBusy(false);
     }
-  }, [cameraCaptureBusy, cameraFacingMode, cameraSwitchBusy, startCameraCaptureStream]);
+  }, [cameraCanSwitch, cameraCaptureBusy, cameraCaptureOpen, cameraFacingMode, cameraSwitchBusy, startCameraCaptureStream]);
 
   useEffect(() => () => { stopCameraCaptureStream(); }, [stopCameraCaptureStream]);
 
@@ -915,7 +887,8 @@ export default function App() {
     setSessions([]); setActiveSessionId(''); setMessages([]); setNewChatInterfaceVersion(0);
     setDraft(''); setDraftsByMode({ chat: '', drug: '', research: '', who: '' });
     setAttachedImages([]); setComposerAttachmentMenuOpen(false);
-    setCameraCaptureOpen(false); setCameraCaptureBusy(false); setCameraSwitchBusy(false); setCameraCanSwitch(false); setCameraFacingMode('environment'); setCameraCaptureError('');
+    setCameraCaptureOpen(false); setCameraCaptureBusy(false); setCameraCaptureError('');
+    setCameraFacingMode('environment'); setCameraCanSwitch(false); setCameraSwitchBusy(false);
     stopCameraCaptureStream();
     setActiveMode(DEFAULT_CHAT_MODE); setChatError(''); setShowScrollToLatest(false);
     setShareError(''); setSessionMenuOpenId(''); setSessionActionBusyId('');
@@ -1704,8 +1677,7 @@ export default function App() {
   const handleCameraCapturePhoto = useCallback(async () => {
     const video = cameraVideoRef.current;
     if (!video) { setCameraCaptureError('Camera preview is not ready yet.'); return; }
-    const width = Number(video.videoWidth || 0);
-    const height = Number(video.videoHeight || 0);
+    const width = video.videoWidth || 1280, height = video.videoHeight || 720;
     if (!width || !height) { setCameraCaptureError('Unable to capture image right now. Please try again.'); return; }
     setCameraCaptureBusy(true); setCameraCaptureError('');
     try {
@@ -2128,7 +2100,7 @@ export default function App() {
             onScroll={handleChatScroll}
             className={`chat-scroll-area min-h-0 flex-1 overflow-y-auto overflow-x-hidden ${
               isMobileLayout
-                ? isEmptyChatState ? 'px-3 py-3 pb-40' : 'px-3 py-3 pb-40'
+                ? isEmptyChatState ? 'px-3 py-2 pb-24' : 'px-3 py-2 pb-24'
                 : isEmptyChatState ? 'px-4 py-3 pb-24' : 'px-4 py-5 pb-32'
             }`}
           >
@@ -2264,7 +2236,7 @@ export default function App() {
 
           {/* ── COMPOSER ─────────────────────────────────────────────────── */}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20">
-            <div className={`composer-shell pointer-events-auto bg-transparent ${isMobileLayout ? 'px-2 py-2' : 'px-4 py-1.5'}`}>
+            <div className={`composer-shell pointer-events-auto bg-transparent ${isMobileLayout ? 'px-2 py-0.5' : 'px-4 py-1.5'}`}>
               <div className={`mx-auto w-full ${isMobileLayout ? 'max-w-full' : 'max-w-2xl'}`}>
                 {(chatError || shareError) && (
                   <div className="mb-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">
@@ -2281,9 +2253,9 @@ export default function App() {
                   </div>
                 )}
 
-                <div className={`rounded-2xl border border-white/15 bg-slate-900/85 backdrop-blur-sm ${isMobileLayout ? 'p-2' : 'p-1.5'}`}>
+                <div className={`rounded-2xl border border-white/15 bg-slate-900/85 backdrop-blur-sm ${isMobileLayout ? 'p-1' : 'p-1.5'}`}>
                   <input ref={uploadImageInputRef} type="file" accept={ATTACHMENT_PICKER_ACCEPT} multiple onChange={handleUploadImageSelect} className="hidden" />
-                  <input ref={captureImageInputRef} type="file" accept="image/*" capture="environment" onChange={handleCaptureImageSelect} className="hidden" />
+                  <input ref={captureImageInputRef} type="file" accept="image/*" capture={cameraFacingMode === 'user' ? 'user' : 'environment'} onChange={handleCaptureImageSelect} className="hidden" />
 
                   <div className="relative">
                     <textarea
@@ -2294,7 +2266,7 @@ export default function App() {
                       onPaste={handleComposerPaste}
                       placeholder={activeModeConfig.placeholder}
                       rows={1}
-                      className={`max-h-28 w-full resize-none bg-transparent text-sm text-slate-100 outline-none placeholder:text-slate-500 ${isMobileLayout ? 'min-h-[36px] px-1 py-1' : 'min-h-[26px] px-1'} ${attachedImages.length > 0 ? 'pt-10' : ''}`}
+                      className={`max-h-20 w-full resize-none bg-transparent text-sm text-slate-100 outline-none placeholder:text-slate-500 ${isMobileLayout ? 'min-h-[24px] px-1 py-0' : 'min-h-[26px] px-1'} ${attachedImages.length > 0 ? 'pt-10' : ''}`}
                     />
                     {attachedImages.length > 0 && (
                       <div className="pointer-events-auto absolute left-1 top-1 z-10 flex max-w-[90%] flex-wrap justify-start gap-1.5">
@@ -2312,7 +2284,7 @@ export default function App() {
                   </div>
 
                   {/* Composer action bar */}
-                  <div className={`flex items-center justify-between gap-1 ${isMobileLayout ? 'mt-1' : 'mt-1.5'}`}>
+                  <div className={`flex items-center justify-between gap-1 ${isMobileLayout ? 'mt-0' : 'mt-1.5'}`}>
                     {/* Left: status (desktop) */}
                     {!isMobileLayout && (
                       <div className="flex min-h-[22px] items-center gap-2 text-xs text-slate-300">
@@ -2327,9 +2299,9 @@ export default function App() {
                     <div ref={composerAttachmentMenuRef} className="relative flex items-center gap-1">
                       {/* Attachment menu */}
                       <button type="button" onClick={() => setComposerAttachmentMenuOpen((prev) => !prev)}
-                        className={`mobile-touch-target inline-flex items-center justify-center rounded-xl border border-transparent text-slate-200 transition hover:bg-white/10 hover:text-white ${isMobileLayout ? 'h-9 w-9' : 'h-9 w-9'}`}
+                        className={`mobile-touch-target inline-flex items-center justify-center rounded-xl border border-transparent text-slate-200 transition hover:bg-white/10 hover:text-white ${isMobileLayout ? 'h-7 w-7' : 'h-9 w-9'}`}
                         aria-label="Add photos and files"
-                      ><Plus size={18} /></button>
+                      ><Plus size={16} /></button>
                       <div className={`absolute bottom-12 right-0 z-30 w-52 origin-bottom-right rounded-xl border border-white/15 bg-slate-900/95 p-1.5 shadow-chat transition-all duration-150 ${composerAttachmentMenuOpen ? 'pointer-events-auto translate-y-0 scale-100 opacity-100' : 'pointer-events-none translate-y-1 scale-95 opacity-0'}`}>
                         <button type="button" onClick={handleOpenUploadImagePicker} className="mobile-touch-target flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm text-slate-100 hover:bg-white/10"><Upload size={15} />Add Photos and Files</button>
                         <button type="button" onClick={handleOpenCaptureImagePicker} className="mobile-touch-target flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm text-slate-100 hover:bg-white/10"><Camera size={15} />Take picture</button>
@@ -2337,15 +2309,15 @@ export default function App() {
 
                       {/* Mic */}
                       <button type="button" onClick={toggleDictation} disabled={!dictationSupported}
-                        className={`mobile-touch-target inline-flex h-9 w-9 items-center justify-center rounded-xl border border-transparent transition ${dictationState === 'listening' ? 'bg-emerald-500/20 text-emerald-300' : 'text-slate-300 hover:bg-white/10 hover:text-white'} disabled:cursor-not-allowed disabled:opacity-50`}
+                        className={`mobile-touch-target inline-flex items-center justify-center rounded-xl border border-transparent transition ${dictationState === 'listening' ? 'bg-emerald-500/20 text-emerald-300' : 'text-slate-300 hover:bg-white/10 hover:text-white'} disabled:cursor-not-allowed disabled:opacity-50 ${isMobileLayout ? 'h-7 w-7' : 'h-9 w-9'}`}
                         title="Dictate" aria-label="Dictate"
-                      >{dictationState === 'processing' ? <Loader2 size={18} className="animate-spin" /> : <Mic size={18} />}</button>
+                      >{dictationState === 'processing' ? <Loader2 size={15} className="animate-spin" /> : <Mic size={15} />}</button>
 
                       {/* Send button */}
                       <button type="button" onClick={handleSendMessage} disabled={sending || !canSendMessage}
-                        className={`mobile-touch-target inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 font-semibold text-emerald-950 transition hover:bg-emerald-400 disabled:opacity-50 ${isMobileLayout ? 'h-9 w-9 justify-center' : 'px-3 py-2 text-sm gap-2'}`}
+                        className={`mobile-touch-target inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 font-semibold text-emerald-950 transition hover:bg-emerald-400 disabled:opacity-50 ${isMobileLayout ? 'h-7 w-7 justify-center' : 'px-3 py-2 text-sm gap-2'}`}
                       >
-                        {sending ? <Loader2 size={16} className="animate-spin" /> : <SendHorizontal size={16} />}
+                        {sending ? <Loader2 size={14} className="animate-spin" /> : <SendHorizontal size={14} />}
                         {!isMobileLayout && <span>Send</span>}
                       </button>
                     </div>
@@ -2353,7 +2325,7 @@ export default function App() {
                 </div>
               </div>
             </div>
-            <footer className={`pointer-events-none bg-transparent text-center text-xs text-slate-400/70 ${isMobileLayout ? 'px-3 py-1' : 'px-4 py-1.5'}`}>
+            <footer className={`pointer-events-none bg-transparent text-center text-xs text-slate-400/70 ${isMobileLayout ? 'hidden' : 'px-4 py-1.5'}`}>
               {ui.footerDisclaimer}
             </footer>
           </div>
@@ -2371,16 +2343,17 @@ export default function App() {
             <div className="mt-3 overflow-hidden rounded-xl border border-white/10 bg-black">
               <video ref={cameraVideoRef} autoPlay playsInline muted className="h-[260px] w-full object-cover sm:h-[320px]" />
             </div>
-            <div className="mt-4 flex items-center justify-end gap-2">
-              {cameraCanSwitch && (
-                <button type="button" onClick={handleSwitchCamera} disabled={cameraCaptureBusy || cameraSwitchBusy}
-                  className="mobile-touch-target inline-flex items-center gap-2 rounded-lg border border-white/20 px-4 py-2 text-sm text-slate-200 hover:bg-white/10 disabled:opacity-60"
-                >{cameraSwitchBusy ? <Loader2 size={15} className="animate-spin" /> : <RefreshCcw size={15} />}Switch</button>
-              )}
-              <button type="button" onClick={closeCameraCapture} className="mobile-touch-target rounded-lg border border-white/20 px-4 py-2 text-sm text-slate-200 hover:bg-white/10">Cancel</button>
-              <button type="button" onClick={handleCameraCapturePhoto} disabled={cameraCaptureBusy || cameraSwitchBusy}
+            <p className="mt-2 text-xs text-slate-400">Active camera: {cameraFacingMode === 'user' ? 'Front' : 'Back'}</p>
+            <div className="mt-4 flex items-center justify-between gap-2">
+              <button type="button" onClick={handleSwitchCamera} disabled={cameraCaptureBusy || cameraSwitchBusy || !cameraCanSwitch}
+                className="mobile-touch-target inline-flex items-center gap-2 rounded-lg border border-white/20 px-4 py-2 text-sm text-slate-100 hover:bg-white/10 disabled:opacity-60"
+              >{cameraSwitchBusy ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}Switch camera</button>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={closeCameraCapture} className="mobile-touch-target rounded-lg border border-white/20 px-4 py-2 text-sm text-slate-200 hover:bg-white/10">Cancel</button>
+                <button type="button" onClick={handleCameraCapturePhoto} disabled={cameraCaptureBusy || cameraSwitchBusy}
                 className="mobile-touch-target inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-emerald-400 disabled:opacity-60"
               >{cameraCaptureBusy ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />}Capture</button>
+              </div>
             </div>
           </div>
         </div>
