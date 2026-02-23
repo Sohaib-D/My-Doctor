@@ -323,7 +323,7 @@ export default function DrAmnaCharacter({ width = 150, style = {}, className = '
           <circle cx="120" cy="210" r="5.4" fill={COLORS.stethMetal} stroke={COLORS.stethDark} strokeWidth="1.7" />
           <circle cx="120" cy="210" r="1.9" fill={COLORS.stethDark} />
 
-          <rect x="109" y="154" width="22" height="24" rx="9" fill={COLORS.skinShade} opacity="0.85" />
+          <rect x="109" y="158" width="22" height="18" rx="8" fill={COLORS.skinShade} opacity="0.85" />
 
           <ellipse cx="120" cy="102" rx="54" ry="61" fill={COLORS.hairSoft} />
           <ellipse cx="120" cy="108" rx="52" ry="60" fill="url(#skinGrad)" />

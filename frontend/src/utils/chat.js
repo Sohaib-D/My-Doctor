@@ -177,7 +177,7 @@ function preprocessMarkdown(raw) {
   t = t.replace(/([^\n])\s*(#{1,4}\s+)/g, '$1\n\n$2');
 
   // 2. Split inline bullets after heading
-  t = t.replace(/(#{1,4}[^\n]+?)\s{1,3}-\s+/gm, '$1\n- ');
+  t = t.replace(/(#{1,4}[^\n]+?)\s{1,3}[-*\u2022\u25AA\u203A\u25B8\u25BA]\s+/gm, '$1\n- ');
 
   // 2. Split bullets that follow a period, colon, or Devanagari danda
   //    "Heading: - item" → "Heading:\n- item"
@@ -197,6 +197,9 @@ function preprocessMarkdown(raw) {
 
   // 6. Collapse 3+ newlines → 2
   t = t.replace(/\n{3,}/g, '\n\n');
+  t = t.replace(/^\s*[\u25AA\u203A\u25B8\u25BA]\s+/gm, '- ');
+  t = t.replace(/([.:\u0964])\s*[\u25AA\u203A\u25B8\u25BA]\s+/g, '$1\n- ');
+  t = t.replace(/,\s*[\u25AA\u203A\u25B8\u25BA]\s+/g, '\n- ');
 
   // 8. Ensure at least one blank line before bullets for spacing
   t = t.replace(/(^- )/gm, '\n$1');
@@ -233,7 +236,7 @@ export function renderMessageHtml(message) {
     h3: 'display:block;font-size:13px;font-weight:600;color:#ffffff;margin:14px 0 5px 0;line-height:1.5',
     h4: 'display:block;font-size:12.5px;font-weight:600;color:#ffffff;margin:12px 0 4px 0',
     ul: 'margin:6px 0 12px 0;padding:0;list-style:none',
-    ol: 'margin:6px 0 12px 0;padding-left:18px',
+    ol: 'margin:6px 0 12px 0;padding:0;list-style:none',
     li: 'margin-bottom:6px;color:#ffffff;line-height:1.7',
     p:  'margin:6px 0;color:#ffffff;line-height:1.75',
     hr: 'border:none;border-top:1px solid rgba(255,255,255,0.15);margin:14px 0',
@@ -285,26 +288,33 @@ export function renderMessageHtml(message) {
       continue;
     }
 
-    const um = t.match(/^[-*•]\s+(.+)$/);
+    const um = t.match(/^[-*\u2022\u25AA\u203A\u25B8\u25BA]\s+(.+)$/);
     if (um) {
       flushPara();
       if (inOl) { parts.push('</ol>'); inOl = false; }
       if (!inUl) { parts.push(`<ul style="${S.ul}">`); inUl = true; }
       parts.push(
         `<li style="${S.li}">` +
-        `<span style="color:#ffffff;margin-right:6px;font-size:12px">›</span>` +
+        `<span style="color:#ffffff;margin-right:7px;font-size:11px;line-height:1">&bull;</span>` +
         `${applyInlineStyles(um[1].trim())}` +
         `</li>`
       );
       continue;
     }
 
-    const om = t.match(/^\d+[\.)]\s+(.+)$/);
+    const om = t.match(/^(\d+|[A-Za-z])[\.)]\s+(.+)$/);
     if (om) {
       flushPara();
       if (inUl) { parts.push('</ul>'); inUl = false; }
       if (!inOl) { parts.push(`<ol style="${S.ol}">`); inOl = true; }
-      parts.push(`<li style="${S.li}">${applyInlineStyles(om[1].trim())}</li>`);
+      const marker = escapeHtml(om[1]);
+      const itemText = applyInlineStyles(om[2].trim());
+      parts.push(
+        `<li style="${S.li}">` +
+        `<strong style="display:inline-block;min-width:1.4em;margin-right:6px;color:#ffffff;font-weight:700">${marker}.</strong>` +
+        `${itemText}` +
+        `</li>`
+      );
       continue;
     }
 

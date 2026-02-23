@@ -79,8 +79,8 @@ const SIDEBAR_RESIZE_MIN = 200;
 const SIDEBAR_RESIZE_MAX = 400;
 const MOBILE_MAX_WIDTH = 767;
 const TABLET_MAX_WIDTH = 1199;
-const SILENCE_TIMEOUT_MS = 3000;
-const MAX_IMAGE_ATTACHMENTS = 4;
+const SILENCE_TIMEOUT_MS = 2000;
+const MAX_IMAGE_ATTACHMENTS = 10;
 const MAX_IMAGE_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024;
 const MAX_FILE_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024;
 const MAX_TEXT_ATTACHMENT_CHARS = 12000;
@@ -126,6 +126,16 @@ const TEXT_ATTACHMENT_MIME_TYPES = new Set([
   'application/xml',
   'application/xhtml+xml',
   'application/rtf',
+]);
+const IMAGE_ATTACHMENT_EXTENSIONS = new Set([
+  'png',
+  'jpg',
+  'jpeg',
+  'webp',
+  'gif',
+  'bmp',
+  'heic',
+  'heif',
 ]);
 const CHAT_MODES = {
   chat: {
@@ -242,7 +252,7 @@ const CHAT_EMPTY_SUGGESTIONS_BY_LANGUAGE = {
 
 function createDefaultAppSettings() {
   return {
-    appearance: 'dark',
+    appearance: 'system',
     language: 'en',
     voice_gender: 'female',
     voice_auto_detect: true,
@@ -256,7 +266,10 @@ function normalizeAppSettings(source) {
     return next;
   }
   const appearance = String(source.appearance || '').toLowerCase();
-  next.appearance = appearance === 'light' || appearance === 'dark' ? appearance : 'dark';
+  next.appearance =
+    appearance === 'light' || appearance === 'dark' || appearance === 'system'
+      ? appearance
+      : 'system';
   next.language = source.language === 'ur' ? 'ur' : 'en';
   next.voice_gender = 'female';
   next.voice_auto_detect = source.voice_auto_detect !== false;
@@ -397,7 +410,12 @@ function getFileExtension(name) {
 }
 
 function isImageAttachment(file) {
-  return String(file?.type || '').toLowerCase().startsWith('image/');
+  const mime = String(file?.type || '').toLowerCase();
+  if (mime.startsWith('image/')) {
+    return true;
+  }
+  const ext = getFileExtension(file?.name || '');
+  return IMAGE_ATTACHMENT_EXTENSIONS.has(ext);
 }
 
 function isTextAttachment(file) {
@@ -1334,7 +1352,7 @@ export default function App() {
     if (!textAreaRef.current) return;
     textAreaRef.current.style.height = '0px';
     textAreaRef.current.style.height = `${Math.min(textAreaRef.current.scrollHeight, 220)}px`;
-  }, [draft, shareRouteId]);
+  }, [draft, attachedImages.length, shareRouteId]);
 
   useEffect(() => {
     if (shareRouteId) return;
@@ -2633,6 +2651,87 @@ export default function App() {
     [addImageAttachments]
   );
 
+  const handleComposerPaste = useCallback(
+    async (event) => {
+      const clipboard = event.clipboardData;
+      if (!clipboard) {
+        return;
+      }
+
+      const pastedImages = [];
+      if (clipboard.items && clipboard.items.length > 0) {
+        for (const item of Array.from(clipboard.items)) {
+          if (item.kind !== 'file') {
+            continue;
+          }
+          const file = item.getAsFile();
+          if (!file) {
+            continue;
+          }
+          const normalizedMime = String(file.type || item.type || '').toLowerCase();
+          const isImage = normalizedMime.startsWith('image/') || isImageAttachment(file);
+          if (!isImage) {
+            continue;
+          }
+          const extFromMime = normalizedMime.startsWith('image/')
+            ? normalizedMime.slice('image/'.length).split(/[+;]/)[0]
+            : '';
+          const fallbackExt = extFromMime || getFileExtension(file.name) || 'png';
+          const normalizedExt = String(fallbackExt).replace(/[^a-z0-9]/gi, '') || 'png';
+          const normalizedName =
+            typeof file.name === 'string' && file.name.trim()
+              ? file.name
+              : `pasted-image-${Date.now()}-${pastedImages.length + 1}.${normalizedExt}`;
+          const normalizedFile =
+            typeof file.name === 'string' &&
+            file.name.trim() &&
+            String(file.type || '').toLowerCase().startsWith('image/')
+              ? file
+              : new File([file], normalizedName, {
+                  type: normalizedMime || 'image/png',
+                  lastModified: Date.now(),
+                });
+          pastedImages.push(
+            normalizedFile
+          );
+        }
+      }
+
+      if (!pastedImages.length && clipboard.files && clipboard.files.length > 0) {
+        for (const file of Array.from(clipboard.files)) {
+          if (!file || !isImageAttachment(file)) {
+            continue;
+          }
+          if (String(file.type || '').toLowerCase().startsWith('image/') && file.name) {
+            pastedImages.push(file);
+            continue;
+          }
+          const fallbackExt = getFileExtension(file.name) || 'png';
+          const normalizedExt = String(fallbackExt).replace(/[^a-z0-9]/gi, '') || 'png';
+          const normalizedName =
+            typeof file.name === 'string' && file.name.trim()
+              ? file.name
+              : `pasted-image-${Date.now()}-${pastedImages.length + 1}.${normalizedExt}`;
+          pastedImages.push(
+            new File([file], normalizedName, {
+              type: String(file.type || '').toLowerCase() || 'image/png',
+              lastModified: Date.now(),
+            })
+          );
+        }
+      }
+
+      if (!pastedImages.length) {
+        return;
+      }
+
+      event.preventDefault();
+      await addImageAttachments(pastedImages);
+      setComposerAttachmentMenuOpen(false);
+    },
+    [addImageAttachments]
+  );
+
   const handleOpenUploadImagePicker = useCallback(() => {
     setComposerAttachmentMenuOpen(false);
     if (uploadImageInputRef.current) {
@@ -2702,12 +2801,10 @@ export default function App() {
   }, []);
 
   const handleSendMessage = useCallback(async () => {
-    const attachmentText = attachedImages.length
-      ? `Attached photo/file${attachedImages.length > 1 ? 's' : ''}:\n${attachedImages
-          .map((item, index) => `${index + 1}. ${item.name}${item.kind === 'image' ? ' (photo)' : ' (file)'}`)
-          .join('\n')}`
-      : '';
-    const text = [draft.trim(), attachmentText].filter(Boolean).join('\n\n');
+    const trimmedDraft = draft.trim();
+    const attachmentCount = attachedImages.length;
+    const attachmentLabel = attachmentCount ? `📎 ${attachmentCount}` : '';
+    const text = [trimmedDraft, attachmentLabel].filter(Boolean).join('\n\n');
     const requestAttachments = attachedImages.map((item) => ({
       name: item.name,
       mime_type: item.mimeType || '',
@@ -2743,7 +2840,7 @@ export default function App() {
     const requestConversationVersion = conversationResetRef.current;
 
     try {
-      const languageProbe = draft.trim() || text;
+      const languageProbe = trimmedDraft || text;
       const languageVariant = resolveSpeechVariant(languageProbe, chatLanguage);
       const language = languageVariant === 'ur' ? 'ur' : 'en';
       let profilePayload = undefined;
@@ -3438,7 +3535,7 @@ export default function App() {
                 const urduScriptClass = isUrduScriptMessage ? 'urdu-left-align' : '';
 
                 return (
-                  <div key={message.id} className={`message-bubble max-w-3xl rounded-2xl px-4 py-3 break-words ${message.role === 'user' ? 'ml-auto bg-emerald-500/15 text-emerald-100' : 'mr-auto border border-white/10 bg-slate-800/80 text-slate-100'}`}>
+                  <div key={message.id} className={`message-bubble max-w-3xl rounded-2xl px-4 py-3 break-words ${message.role === 'user' ? 'ml-auto min-h-[64px] min-w-[210px] bg-emerald-500/15 text-emerald-100' : 'mr-auto border border-white/10 bg-slate-800/80 text-slate-100'}`}>
                   {message.role === 'assistant' ? (
                     <div
                       className={`message-rich text-sm leading-6 ${urduScriptClass}`.trim()}
@@ -3459,7 +3556,7 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => copyMessageText(message)}
-                        className="rounded-md p-1 transition hover:bg-white/10 hover:text-white"
+                        className={`p-1 transition hover:text-white ${message.role === 'user' ? 'bg-transparent hover:bg-transparent focus:bg-transparent active:bg-transparent' : 'rounded-md hover:bg-white/10'}`}
                         aria-label={`Copy ${message.role === 'user' ? 'your message' : 'assistant reply'}`}
                         title="Copy"
                       >
@@ -3469,7 +3566,7 @@ export default function App() {
                         <button
                           type="button"
                           onClick={() => editUserMessage(message)}
-                          className="rounded-md p-1 transition hover:bg-white/10 hover:text-white"
+                          className="bg-transparent p-1 transition hover:bg-transparent hover:text-white focus:bg-transparent active:bg-transparent"
                           aria-label="Edit your message"
                           title="Edit"
                         >
@@ -3589,15 +3686,16 @@ export default function App() {
                     ref={textAreaRef}
                     value={draft}
                     onChange={(event) => setDraft(event.target.value)}
+                    onPaste={handleComposerPaste}
                     onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); handleSendMessage(); } }}
                     placeholder={activeModeConfig.placeholder}
                     rows={1}
                     className={`max-h-24 min-h-[26px] w-full resize-none bg-transparent px-1 text-sm text-slate-100 outline-none placeholder:text-slate-500 ${
-                      attachedImages.length > 0 ? 'pt-8' : ''
+                      attachedImages.length > 0 ? 'pt-9' : ''
                     }`}
                   />
                   {attachedImages.length > 0 && (
-                    <div className="pointer-events-auto absolute right-1 top-1 z-10 flex max-w-[92%] flex-wrap justify-end gap-1.5 sm:max-w-[75%]">
+                    <div className="pointer-events-auto absolute left-1 top-1 z-10 flex max-w-[92%] flex-wrap justify-start gap-1.5 sm:max-w-[75%]">
                       {attachedImages.map((item) => (
                         <span
                           key={item.id}
