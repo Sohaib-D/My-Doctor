@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from html import escape
 from urllib.parse import parse_qs
@@ -13,13 +14,18 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from backend.config import get_settings
-from backend.database.models import Feedback, User
+from backend.database.models import ChatMessage, Feedback, User
 from backend.database.session import get_db
+from backend.services.groq_service import list_session_summaries
 
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 SESSION_COOKIE_NAME = "admin_session"
 ADMIN_TAB_SESSION_KEY = "pd_admin_tab_active"
+USER_FILTER_OPTIONS = {"all", "verified", "guest"}
+FEEDBACK_FILTER_OPTIONS = {"all", "verified", "guest"}
+PKT_TZ = timezone(timedelta(hours=5), name="PKT")
+PKT_LABEL = "PKT"
 
 
 def _admin_email() -> str:
@@ -164,6 +170,15 @@ def _html_page(title: str, body: str) -> str:
         color: var(--danger);
         font-weight: 600;
       }}
+      .notice {{
+        border: 1px solid #bfdbfe;
+        background: #eff6ff;
+        color: #1e3a8a;
+        border-radius: 8px;
+        padding: 10px 12px;
+        font-size: 14px;
+        line-height: 1.45;
+      }}
       table {{
         width: 100%;
         border-collapse: collapse;
@@ -215,6 +230,11 @@ def _login_page(error: str | None = None) -> str:
 <div class="card not-auth">
   <h1>Admin Login</h1>
   <p class="muted">Sign in with your admin Gmail and password.</p>
+  <p class="notice">
+    This area is restricted to the project administrator only. If you are a regular user, you cannot access the admin dashboard.
+    Please return to the main login page to sign in or create your user account.
+    <a href="/" style="color:#1d4ed8; font-weight:600;">Go to User Login</a>
+  </p>
   {error_html}
   <form id="admin-login-form" method="post" action="/admin/login" class="form-grid" autocomplete="off">
     <input type="text" name="admin_fake_username" autocomplete="username" tabindex="-1" aria-hidden="true" style="position:absolute;left:-9999px;opacity:0;width:1px;height:1px;" />
@@ -295,25 +315,132 @@ def _parse_form(body: bytes) -> dict[str, str]:
     return {key: (values[0] if values else "") for key, values in parsed.items()}
 
 
-def _count_guest_users(db: Session) -> int:
+def _normalize_filter(value: str | None, *, allowed: set[str], default: str = "all") -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in allowed:
+        return normalized
+    return default
+
+
+def _is_guest_identity(email: str | None) -> bool:
+    normalized = str(email or "").strip().lower()
+    if not normalized:
+        return True
+    return normalized.startswith("guest") or normalized.endswith("@local.invalid")
+
+
+def _feedback_sender_type(email: str | None, verified_emails: set[str]) -> str:
+    normalized = str(email or "").strip().lower()
+    if normalized and normalized in verified_emails and not _is_guest_identity(normalized):
+        return "Verified User"
+    return "Guest User"
+
+
+def _format_pkt_datetime(value: datetime | None) -> str:
+    if value is None:
+        return "-"
+    dt = value
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    dt = dt.astimezone(PKT_TZ)
+    return f"{dt:%Y-%m-%d %I:%M:%S %p} {PKT_LABEL}"
+
+
+def _load_persisted_session_ids(db: Session) -> set[str]:
     try:
-        inspector = inspect(db.bind)
-        if not inspector.has_table("users"):
-            return 0
-        columns = {col["name"] for col in inspector.get_columns("users")}
+        rows = db.execute(
+            select(ChatMessage.session_id)
+            .where(ChatMessage.session_id.is_not(None), ChatMessage.session_id != "")
+            .distinct()
+        ).all()
+    except SQLAlchemyError:
+        return set()
+    session_ids: set[str] = set()
+    for row in rows:
+        raw = str((row[0] if row else "") or "").strip()
+        if raw:
+            session_ids.add(raw)
+    return session_ids
 
-        if "is_guest" in columns:
-            query = text('SELECT COUNT(*) FROM "users" WHERE "is_guest" = true')
-            return int(db.execute(query).scalar() or 0)
 
-        if "user_type" in columns:
-            query = text('SELECT COUNT(*) FROM "users" WHERE LOWER("user_type") = \'guest\'')
-            return int(db.execute(query).scalar() or 0)
+def _guest_runtime_session_counts(db: Session) -> dict[str, int]:
+    persisted_session_ids = _load_persisted_session_ids(db)
+    try:
+        runtime_summaries = asyncio.run(list_session_summaries())
     except Exception:
-        return 0
+        return {}
 
-    query = select(func.count(User.id)).where(func.lower(User.email).like("guest%"))
-    return int(db.execute(query).scalar() or 0)
+    session_counts: dict[str, int] = {}
+    for item in runtime_summaries:
+        session_id = str((item or {}).get("id") or "").strip()
+        message_count = int((item or {}).get("message_count") or 0)
+        if not session_id or message_count <= 0:
+            continue
+        if session_id in persisted_session_ids:
+            continue
+        session_counts[session_id] = message_count
+    return session_counts
+
+
+def _count_guest_users(
+    db: Session,
+    verified_emails: set[str],
+    runtime_guest_sessions: dict[str, int] | None = None,
+) -> int:
+    guest_identities: set[str] = set()
+
+    table, columns = _find_message_table(db)
+    if table:
+        email_column = "user_email" if "user_email" in columns else ("email" if "email" in columns else None)
+        if email_column:
+            role_filter_sql = ' WHERE LOWER("role") = \'user\'' if "role" in columns else ""
+            try:
+                rows = db.execute(
+                    text(
+                        f'SELECT LOWER("{email_column}") AS user_key, COUNT(*)::bigint AS total '
+                        f'FROM "{table}"{role_filter_sql} GROUP BY LOWER("{email_column}")'
+                    )
+                ).mappings().all()
+                for row in rows:
+                    email = str(row["user_key"] or "").strip().lower()
+                    total = int(row["total"] or 0)
+                    if (
+                        email
+                        and total > 0
+                        and _is_guest_identity(email)
+                        and email not in verified_emails
+                    ):
+                        guest_identities.add(f"message_email:{email}")
+            except SQLAlchemyError:
+                pass
+
+    try:
+        feedback_rows = db.execute(select(Feedback.email)).all()
+        anonymous_feedback_index = 0
+        for row in feedback_rows:
+            email = str((row[0] if row else "") or "").strip().lower()
+            if _feedback_sender_type(email, verified_emails) != "Guest User":
+                continue
+            if email:
+                guest_identities.add(f"feedback_email:{email}")
+            else:
+                anonymous_feedback_index += 1
+                guest_identities.add(f"feedback_anon:{anonymous_feedback_index}")
+    except SQLAlchemyError:
+        pass
+
+    session_counts = runtime_guest_sessions if runtime_guest_sessions is not None else _guest_runtime_session_counts(db)
+    guest_identities.update(f"runtime_session:{session_id}" for session_id in session_counts)
+
+    return len(guest_identities)
+
+
+def _count_registered_users(db: Session) -> int:
+    try:
+        users = db.execute(select(User.email)).all()
+    except SQLAlchemyError:
+        return 0
+    return sum(1 for row in users if not _is_guest_identity(row[0]))
 
 
 def _find_message_table(db: Session) -> tuple[str | None, set[str]]:
@@ -392,9 +519,13 @@ def _dashboard_page(
     users_rows_html: str,
     feedback_rows_html: str,
     search_query: str,
+    user_filter: str,
+    feedback_filter: str,
 ) -> str:
     safe_query = escape(search_query)
     safe_admin_email = escape(admin_email)
+    safe_user_filter = escape(user_filter)
+    safe_feedback_filter = escape(feedback_filter)
     body = f"""
 <div class="topbar">
   <h1>Admin Dashboard</h1>
@@ -424,8 +555,14 @@ def _dashboard_page(
   <div class="card">
     <div class="topbar">
       <h2>Users</h2>
-      <form method="get" action="/admin/dashboard" style="display:flex; gap:8px; width:380px; max-width:100%;">
+      <form method="get" action="/admin/dashboard" style="display:flex; gap:8px; width:560px; max-width:100%;">
         <input type="search" name="q" value="{safe_query}" placeholder="Search users by email..." />
+        <select name="user_filter" aria-label="Filter users" style="width:180px; border-radius:8px; border:1px solid var(--border); padding:10px 12px;">
+          <option value="all" {"selected" if user_filter == "all" else ""}>All Users</option>
+          <option value="verified" {"selected" if user_filter == "verified" else ""}>Verified Users</option>
+          <option value="guest" {"selected" if user_filter == "guest" else ""}>Guest Users</option>
+        </select>
+        <input type="hidden" name="feedback_filter" value="{safe_feedback_filter}" />
         <button type="submit">Search</button>
       </form>
     </div>
@@ -445,15 +582,28 @@ def _dashboard_page(
   </div>
 
   <div class="card">
-    <h2>Feedback</h2>
+    <div class="topbar">
+      <h2>Feedback</h2>
+      <form method="get" action="/admin/dashboard" style="display:flex; gap:8px; width:360px; max-width:100%;">
+        <input type="hidden" name="q" value="{safe_query}" />
+        <input type="hidden" name="user_filter" value="{safe_user_filter}" />
+        <select name="feedback_filter" aria-label="Filter feedback" style="width:220px; border-radius:8px; border:1px solid var(--border); padding:10px 12px;">
+          <option value="all" {"selected" if feedback_filter == "all" else ""}>All Feedback</option>
+          <option value="verified" {"selected" if feedback_filter == "verified" else ""}>Verified Users</option>
+          <option value="guest" {"selected" if feedback_filter == "guest" else ""}>Guest Users</option>
+        </select>
+        <button type="submit">Filter</button>
+      </form>
+    </div>
     <table>
       <thead>
         <tr>
           <th>ID</th>
           <th>Name</th>
           <th>Email</th>
+          <th>Rating</th>
           <th>Message</th>
-          <th>Created At</th>
+          <th>Created At ({PKT_LABEL})</th>
         </tr>
       </thead>
       <tbody>
@@ -543,21 +693,56 @@ async def admin_login(request: Request) -> HTMLResponse:
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
-def admin_dashboard(request: Request, q: str = "", db: Session = Depends(get_db)) -> HTMLResponse:
+def admin_dashboard(
+    request: Request,
+    q: str = "",
+    user_filter: str = "all",
+    feedback_filter: str = "all",
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
     admin_email = _get_authenticated_admin(request)
     if not admin_email:
         return RedirectResponse(url="/admin/not-authorized", status_code=status.HTTP_303_SEE_OTHER)
 
     try:
-        total_users = int(db.execute(select(func.count(User.id))).scalar() or 0)
-        total_guest_users = _count_guest_users(db)
-        total_registered_users = max(total_users - total_guest_users, 0)
+        normalized_user_filter = _normalize_filter(user_filter, allowed=USER_FILTER_OPTIONS)
+        normalized_feedback_filter = _normalize_filter(feedback_filter, allowed=FEEDBACK_FILTER_OPTIONS)
+        verified_email_rows = db.execute(
+            select(func.lower(User.email)).where(User.is_verified.is_(True))
+        ).all()
+        verified_emails = {str(row[0] or "").strip().lower() for row in verified_email_rows if row and row[0]}
+        runtime_guest_sessions = _guest_runtime_session_counts(db)
+
+        total_registered_users = _count_registered_users(db)
+        total_guest_users = _count_guest_users(db, verified_emails, runtime_guest_sessions)
 
         search = (q or "").strip()
         users_stmt = select(User).order_by(User.id.desc())
         if search:
             users_stmt = users_stmt.where(func.lower(User.email).like(f"%{search.lower()}%"))
+        if normalized_user_filter == "verified":
+            users_stmt = users_stmt.where(User.is_verified.is_(True))
         users = db.execute(users_stmt).scalars().all()
+        if normalized_user_filter == "guest":
+            users = [user for user in users if _is_guest_identity(user.email)]
+        elif normalized_user_filter == "verified":
+            users = [user for user in users if not _is_guest_identity(user.email)]
+
+        guest_session_rows: list[dict[str, str | int]] = []
+        if normalized_user_filter in {"all", "guest"}:
+            search_lower = search.lower()
+            for idx, (session_id, message_count) in enumerate(runtime_guest_sessions.items(), start=1):
+                session_label = f"Guest User (session {session_id[:8]})"
+                if search and search_lower not in session_label.lower() and search_lower not in session_id.lower():
+                    continue
+                guest_session_rows.append(
+                    {
+                        "id": f"G-{idx}",
+                        "email": session_label,
+                        "verified": "No",
+                        "message_count": int(message_count),
+                    }
+                )
 
         table, columns = _find_message_table(db)
         count_mode, counts, total_messages = _message_counts_by_user(db, table, columns)
@@ -575,17 +760,44 @@ def admin_dashboard(request: Request, q: str = "", db: Session = Depends(get_db)
                 f"<td>{message_count}</td>"
                 "</tr>"
             )
+        for guest_row in guest_session_rows:
+            user_rows.append(
+                "<tr>"
+                f"<td>{escape(str(guest_row['id']))}</td>"
+                f"<td>{escape(str(guest_row['email']))}</td>"
+                f"<td>{escape(str(guest_row['verified']))}</td>"
+                f"<td>{int(guest_row['message_count'])}</td>"
+                "</tr>"
+            )
         users_rows_html = "\n".join(user_rows) if user_rows else '<tr><td colspan="4">No users found.</td></tr>'
 
-        feedback_items = db.execute(select(Feedback).order_by(Feedback.created_at.desc()).limit(300)).scalars().all()
+        feedback_items = list(
+            db.execute(select(Feedback).order_by(Feedback.created_at.desc(), Feedback.id.desc()).limit(500))
+            .scalars()
+            .all()
+        )
+        feedback_items.reverse()
+
         feedback_rows: list[str] = []
         for item in feedback_items:
-            created_at = item.created_at.isoformat() if item.created_at else "-"
+            sender_type = _feedback_sender_type(item.email, verified_emails)
+            if normalized_feedback_filter == "verified" and sender_type != "Verified User":
+                continue
+            if normalized_feedback_filter == "guest" and sender_type != "Guest User":
+                continue
+
+            created_at = _format_pkt_datetime(item.created_at)
+            rating_value = int(item.rating) if item.rating is not None else None
+            if rating_value and 1 <= rating_value <= 5:
+                rating_display = f"{rating_value}/5 " + ("*" * rating_value) + ("-" * (5 - rating_value))
+            else:
+                rating_display = "-"
             feedback_rows.append(
                 "<tr>"
                 f"<td>{item.id}</td>"
-                f"<td>{escape(item.name)}</td>"
+                f"<td>{escape(sender_type)}</td>"
                 f"<td>{escape(item.email)}</td>"
+                f"<td>{escape(rating_display)}</td>"
                 f"<td>{escape(item.message)}</td>"
                 f"<td>{escape(created_at)}</td>"
                 "</tr>"
@@ -593,7 +805,7 @@ def admin_dashboard(request: Request, q: str = "", db: Session = Depends(get_db)
         feedback_rows_html = (
             "\n".join(feedback_rows)
             if feedback_rows
-            else '<tr><td colspan="5">No feedback submitted yet.</td></tr>'
+            else '<tr><td colspan="6">No feedback submitted yet.</td></tr>'
         )
 
     except SQLAlchemyError:
@@ -619,6 +831,8 @@ def admin_dashboard(request: Request, q: str = "", db: Session = Depends(get_db)
             users_rows_html=users_rows_html,
             feedback_rows_html=feedback_rows_html,
             search_query=q,
+            user_filter=normalized_user_filter,
+            feedback_filter=normalized_feedback_filter,
         )
     )
 
@@ -647,3 +861,4 @@ def admin_logout_beacon() -> Response:
 @router.get("/not-authorized", response_class=HTMLResponse)
 def admin_not_authorized() -> HTMLResponse:
     return HTMLResponse(_not_authorized_page(), status_code=status.HTTP_403_FORBIDDEN)
+

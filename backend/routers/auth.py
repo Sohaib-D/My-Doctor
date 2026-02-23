@@ -17,7 +17,7 @@ from backend.auth.jwt import create_access_token
 from backend.config import get_settings
 from backend.database.models import User
 from backend.database.session import get_db
-from backend.services.email_service import send_verification_email
+from backend.services.email_service import send_password_reset_email, send_verification_email
 
 try:
     from google.auth.transport import requests as google_requests
@@ -143,6 +143,31 @@ class GoogleLoginRequest(BaseModel):
     id_token: str = Field(min_length=20)
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return _normalize_email(value)
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    otp: str = Field(min_length=4, max_length=20)
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return _normalize_email(value)
+
+    @field_validator("otp", "new_password")
+    @classmethod
+    def strip_fields(cls, value: str) -> str:
+        return value.strip()
+
+
 @router.post("/auth/signup", status_code=status.HTTP_201_CREATED)
 def signup(data: SignupRequest, db: Session = Depends(get_db)) -> dict:
     now = datetime.now(timezone.utc)
@@ -231,6 +256,72 @@ def login(data: LoginRequest, db: Session = Depends(get_db)) -> dict:
     if not user.is_verified:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified.")
     return _auth_payload(user)
+
+
+@router.post("/auth/forgot-password")
+def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)) -> dict:
+    user = db.execute(select(User).where(User.email == data.email)).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No account found for this email.")
+    if not user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account is not verified yet. Please verify your email first.",
+        )
+
+    otp = _generate_otp()
+    user.verification_token = otp
+    user.token_expiry = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
+
+    settings = get_settings()
+    email_sent = True
+    try:
+        send_password_reset_email(data.email, otp, OTP_EXPIRY_MINUTES)
+    except RuntimeError as exc:
+        email_sent = False
+        if settings.environment == "production":
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Unable to send password reset OTP right now. Please try again.",
+            ) from exc
+
+    db.commit()
+    debug_otp = None if settings.environment == "production" else otp
+    return {
+        "message": "Password reset OTP sent to your email." if email_sent else "Password reset OTP generated for development.",
+        "masked_email": _mask_email(data.email),
+        "expires_in_minutes": OTP_EXPIRY_MINUTES,
+        "otp": debug_otp,
+    }
+
+
+@router.post("/auth/reset-password")
+def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)) -> dict:
+    user = db.execute(select(User).where(User.email == data.email)).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No account found for this email.")
+    if not user.verification_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No password reset request found. Please request OTP first.",
+        )
+    if user.verification_token != data.otp:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OTP.")
+    if user.token_expiry is None or _as_utc(user.token_expiry) < datetime.now(timezone.utc):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OTP expired.")
+    if _verify_password(data.new_password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from your current password.",
+        )
+
+    user.hashed_password = _hash_password(data.new_password)
+    user.verification_token = None
+    user.token_expiry = None
+    db.commit()
+
+    return {"message": "Password reset successful. Please sign in with your new password."}
 
 
 def _verify_google_id_token(token: str) -> str:

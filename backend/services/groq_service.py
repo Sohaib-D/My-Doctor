@@ -1,7 +1,8 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import asyncio
 import os
+import re
 import secrets
 import time
 from asyncio import Lock
@@ -51,13 +52,11 @@ Language rule:
 - Reply in the same language the user uses.
 - Determine reply language from the latest user message in the current turn.
 - English -> English
-- Urdu script -> Urdu script (Each new line or old continued line should strictly be Right-aligned with proper Urdu punctuation)
-- Roman Urdu -> Roman Urdu (most importantly, do not reply in Urdu script if user is writing in Roman Urdu)
+- Urdu script -> Urdu script with pure Urdu vocabulary (no any other language) and proper Urdu punctuation (۔ ، ؟).
+- Roman Urdu -> Roman Urdu (Latin letters only).
 - Never switch language on your own. If user writes English or Roman Urdu, do not reply in Urdu script unless user explicitly asks.
-- In Urdu script replies, write doctor name as "ڈاکٹر آمنہ" only (do not append "Dr. Amna").
-- For Urdu script replies: write pure Urdu script (no Hindi or other languages), strictly keep wording naturally Urdu, and use proper Urdu punctuation (۔ ، ؟).
-- For Urdu script formatting: keep each new lines clean and Right-aligned, with bullets, headings starting from leftmost in output text.
-- For Urdu script formatting: Each new line (from first to last line) or previously continued line should always start from the left most side and bullets, emojis should also be in left-aligned)
+- For Urdu script replies: do not use Devanagari/Hindi words or mixed scripts.
+- Keep formatting clear with headings and bullets when useful.
 
 Safety:
 - Only include emergency guidance for true red-flag symptoms.
@@ -137,10 +136,332 @@ _MAX_ATTACHMENT_TEXT_CHARS = 12000
 _MAX_IMAGE_DATA_URL_CHARS = 4_000_000
 _MAX_IMAGE_ATTACHMENTS_PER_TURN = 3
 
+_URDU_SCRIPT_RE = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]")
+_DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
+_LATIN_RE = re.compile(r"[A-Za-z]")
+
+_LANG_ENGLISH = "english"
+_LANG_URDU_SCRIPT = "urdu_script"
+_LANG_ROMAN_URDU = "roman_urdu"
+
+_ROMAN_URDU_HINTS = {
+    "aoa",
+    "assalam",
+    "walikum",
+    "salam",
+    "salaam",
+    "aap",
+    "ap",
+    "tum",
+    "tm",
+    "mujhe",
+    "mujhy",
+    "mera",
+    "meri",
+    "mere",
+    "main",
+    "mai",
+    "hain",
+    "hai",
+    "ho",
+    "haan",
+    "han",
+    "hn",
+    "nahi",
+    "nahin",
+    "nai",
+    "nhi",
+    "kia",
+    "kiya",
+    "kya",
+    "kesay",
+    "kaise",
+    "kese",
+    "kaisy",
+    "haal",
+    "hal",
+    "hay",
+    "theek",
+    "thik",
+    "thk",
+    "kr",
+    "karo",
+    "kar",
+    "kren",
+    "karein",
+    "plz",
+    "pleasee",
+    "ky",
+    "kyu",
+    "kyun",
+    "kuch",
+    "kush",
+    "dard",
+    "bukhar",
+    "khansi",
+    "saans",
+    "tabiyat",
+    "thakan",
+    "behosh",
+    "dawai",
+    "ilaaj",
+}
+
+_ENGLISH_HINTS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "can",
+    "could",
+    "do",
+    "does",
+    "for",
+    "from",
+    "hello",
+    "help",
+    "hi",
+    "how",
+    "i",
+    "if",
+    "in",
+    "is",
+    "it",
+    "let",
+    "me",
+    "my",
+    "of",
+    "on",
+    "or",
+    "please",
+    "thanks",
+    "thank",
+    "the",
+    "this",
+    "to",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "why",
+    "with",
+    "you",
+    "your",
+}
+
+
+def _roman_urdu_hit_count(tokens: list[str]) -> int:
+    return sum(1 for token in tokens if token in _ROMAN_URDU_HINTS)
+
+
+def _english_hit_count(tokens: list[str]) -> int:
+    return sum(1 for token in tokens if token in _ENGLISH_HINTS)
+
+
+def _looks_like_roman_urdu(tokens: list[str]) -> bool:
+    if not tokens:
+        return False
+    roman_hits = _roman_urdu_hit_count(tokens)
+    english_hits = _english_hit_count(tokens)
+
+    if roman_hits >= 2:
+        return True
+    if roman_hits >= 1 and len(tokens) <= 8 and english_hits <= 1:
+        return True
+    if len(tokens) <= 4 and roman_hits >= 1 and english_hits == 0:
+        return True
+    return False
+
 
 def detect_emergency(message: str) -> bool:
     message_lower = str(message or "").lower()
     return any(keyword in message_lower for keyword in EMERGENCY_KEYWORDS)
+
+
+def _contains_urdu_script(text: str) -> bool:
+    return bool(_URDU_SCRIPT_RE.search(str(text or "")))
+
+
+def _contains_devanagari(text: str) -> bool:
+    return bool(_DEVANAGARI_RE.search(str(text or "")))
+
+
+def _contains_latin(text: str) -> bool:
+    return bool(_LATIN_RE.search(str(text or "")))
+
+
+def _tokenize_latin_words(text: str) -> list[str]:
+    return re.findall(r"[A-Za-z']+", str(text or "").lower())
+
+
+def _detect_expected_language(user_message: str) -> str:
+    text = str(user_message or "").strip()
+    if not text:
+        return _LANG_ENGLISH
+
+    if _contains_urdu_script(text):
+        return _LANG_URDU_SCRIPT
+
+    tokens = _tokenize_latin_words(text)
+    if not tokens:
+        return _LANG_ENGLISH
+
+    if _looks_like_roman_urdu(tokens):
+        return _LANG_ROMAN_URDU
+    return _LANG_ENGLISH
+
+
+def _build_turn_language_instruction(expected_language: str) -> str:
+    if expected_language == _LANG_URDU_SCRIPT:
+        return (
+            "Reply only in Urdu script. Use pure Urdu vocabulary with proper Urdu punctuation (۔ ، ؟). "
+            "Do not use English, Roman Urdu, Devanagari, or mixed scripts. "
+            "When referring to yourself, use feminine wording."
+        )
+    if expected_language == _LANG_ROMAN_URDU:
+        return (
+            "Reply only in Roman Urdu using Latin letters. "
+            "Do not use Urdu script or Devanagari. "
+            "When referring to yourself, use feminine wording."
+        )
+    return "Reply only in English. Do not use Urdu script or Devanagari."
+
+
+def _inject_turn_system_message(messages: list[dict[str, Any]], instruction: str) -> list[dict[str, Any]]:
+    if not instruction:
+        return messages
+    system_message = {"role": "system", "content": instruction}
+    if not messages:
+        return [system_message]
+    if str(messages[-1].get("role") or "") == "user":
+        return [*messages[:-1], system_message, messages[-1]]
+    return [*messages, system_message]
+
+
+def _is_language_compliant(text: str, expected_language: str) -> bool:
+    value = str(text or "").strip()
+    if not value:
+        return False
+
+    if expected_language == _LANG_URDU_SCRIPT:
+        if not _contains_urdu_script(value):
+            return False
+        if _contains_devanagari(value):
+            return False
+        if _contains_latin(value):
+            return False
+        return True
+
+    if expected_language == _LANG_ROMAN_URDU:
+        if _contains_urdu_script(value) or _contains_devanagari(value):
+            return False
+        tokens = _tokenize_latin_words(value)
+        return _looks_like_roman_urdu(tokens)
+
+    if _contains_urdu_script(value) or _contains_devanagari(value):
+        return False
+    tokens = _tokenize_latin_words(value)
+    if _looks_like_roman_urdu(tokens):
+        return False
+    return _contains_latin(value)
+
+
+def _build_language_rewrite_instruction(expected_language: str) -> str:
+    if expected_language == _LANG_URDU_SCRIPT:
+        return (
+            "Rewrite the response in pure Urdu script only. "
+            "Keep the same medical meaning, structure, and safety notes. "
+            "Use Urdu punctuation (۔ ، ؟). "
+            "Do not use English, Roman Urdu, Devanagari, or mixed scripts. "
+            "Use feminine wording for self-reference."
+        )
+    if expected_language == _LANG_ROMAN_URDU:
+        return (
+            "Rewrite the response in Roman Urdu only using Latin letters. "
+            "Keep the same medical meaning and structure. "
+            "Do not use Urdu script or Devanagari. "
+            "Use feminine wording for self-reference."
+        )
+    return (
+        "Rewrite the response in clear English only. "
+        "Keep the same medical meaning and structure. "
+        "Do not use Urdu script or Devanagari."
+    )
+
+
+def _build_language_fallback(expected_language: str) -> str:
+    if expected_language == _LANG_URDU_SCRIPT:
+        return (
+            "میں آپ کی مدد کے لیے موجود ہوں۔ "
+            "براہِ کرم اپنا طبی سوال واضح انداز میں لکھیں تاکہ میں بہتر رہنمائی کر سکوں۔"
+        )
+    if expected_language == _LANG_ROMAN_URDU:
+        return (
+            "Main aap ki madad ke liye maujood hoon. "
+            "Barah-e-karam apna tibbi sawal wazeh taur par likhen taa ke main behtar rehnumai kar sakun."
+        )
+    return (
+        "I am here to help you. "
+        "Please share your medical question clearly so I can guide you better."
+    )
+
+
+async def _rewrite_reply_for_language(
+    ai_reply: str,
+    *,
+    expected_language: str,
+    headers: dict[str, str],
+) -> str:
+    rewrite_instruction = _build_language_rewrite_instruction(expected_language)
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are a medical response language editor. "
+                    "Rewrite only. Do not add new facts."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"{rewrite_instruction}\n\n"
+                    "Original response:\n"
+                    f"{ai_reply}"
+                ),
+            },
+        ],
+        "temperature": 0.1,
+        "max_tokens": 1024,
+    }
+    data = await _request_groq_with_retry(payload, headers)
+    rewritten = _extract_assistant_text(data["choices"][0]["message"]["content"])
+    return rewritten or ai_reply
+
+
+def _build_emergency_prefix(expected_language: str) -> str:
+    if expected_language == _LANG_URDU_SCRIPT:
+        return (
+            "**ہنگامی تنبیہ**\n"
+            "یہ طبی ہنگامی صورتِ حال ہو سکتی ہے۔\n"
+            "براہِ کرم فوراً ایمرجنسی سروسز (911 یا اپنے مقامی ہنگامی نمبر) پر رابطہ کریں۔\n\n"
+        )
+    if expected_language == _LANG_ROMAN_URDU:
+        return (
+            "**Emergency Alert**\n"
+            "Yeh medical emergency ho sakti hai.\n"
+            "Barah-e-karam foran emergency services (911 ya local emergency number) ko call karein.\n\n"
+        )
+    return (
+        "**Emergency Alert**\n"
+        "This may be a medical emergency.\n"
+        "Please call emergency services (911 or local emergency number) immediately.\n\n"
+    )
 
 
 def _seed_history() -> list[dict[str, Any]]:
@@ -402,6 +723,63 @@ def _derive_session_title(history: list[dict[str, Any]]) -> str:
     return "New chat"
 
 
+async def hydrate_session_history(
+    session_id: str,
+    messages: list[dict[str, Any]] | None,
+    *,
+    replace: bool = False,
+) -> None:
+    normalized_session_id = str(session_id or "").strip()
+    if not normalized_session_id:
+        return
+
+    async with _HISTORY_LOCK:
+        now = time.time()
+        _prune_expired_sessions(now)
+        if normalized_session_id in _SESSION_HISTORIES and not replace:
+            _SESSION_TOUCHED_AT[normalized_session_id] = now
+            _SESSION_CREATED_AT.setdefault(normalized_session_id, now)
+            _get_session_flags(normalized_session_id)
+            return
+
+        history = _seed_history()
+        for entry in messages or []:
+            role = str((entry or {}).get("role") or "").strip().lower()
+            if role not in {"user", "assistant"}:
+                continue
+            text = _clean_text(str((entry or {}).get("text") or ""), max_len=12000)
+            if not text:
+                continue
+            history.append({"role": role, "content": text})
+
+        history = _trim_history(history)
+        _SESSION_HISTORIES[normalized_session_id] = history
+        _SESSION_TOUCHED_AT[normalized_session_id] = now
+        _SESSION_CREATED_AT.setdefault(normalized_session_id, now)
+        _get_session_flags(normalized_session_id)
+
+
+async def get_session_flags_snapshot(session_id: str) -> dict[str, Any]:
+    normalized_session_id = str(session_id or "").strip()
+    if not normalized_session_id:
+        return {
+            "is_pinned": False,
+            "is_archived": False,
+            "pinned_at": None,
+        }
+
+    async with _HISTORY_LOCK:
+        now = time.time()
+        _prune_expired_sessions(now)
+        flags = _get_session_flags(normalized_session_id)
+        _SESSION_TOUCHED_AT[normalized_session_id] = now
+        return {
+            "is_pinned": bool(flags.get("is_pinned")),
+            "is_archived": bool(flags.get("is_archived")),
+            "pinned_at": flags.get("pinned_at"),
+        }
+
+
 async def list_session_summaries() -> list[dict[str, Any]]:
     async with _HISTORY_LOCK:
         now = time.time()
@@ -458,7 +836,10 @@ async def pin_session(session_id: str, is_pinned: bool) -> bool:
     async with _HISTORY_LOCK:
         now = time.time()
         _prune_expired_sessions(now)
-        if normalized_session_id not in _SESSION_HISTORIES:
+        if (
+            normalized_session_id not in _SESSION_HISTORIES
+            and normalized_session_id not in _SESSION_FLAGS
+        ):
             return False
         flags = _get_session_flags(normalized_session_id)
         flags["is_pinned"] = bool(is_pinned)
@@ -474,7 +855,10 @@ async def archive_session(session_id: str, is_archived: bool) -> bool:
     async with _HISTORY_LOCK:
         now = time.time()
         _prune_expired_sessions(now)
-        if normalized_session_id not in _SESSION_HISTORIES:
+        if (
+            normalized_session_id not in _SESSION_HISTORIES
+            and normalized_session_id not in _SESSION_FLAGS
+        ):
             return False
         flags = _get_session_flags(normalized_session_id)
         flags["is_archived"] = bool(is_archived)
@@ -544,6 +928,7 @@ async def chat_with_groq(
     attachments: list[ChatAttachment] | None = None,
 ) -> ChatResponse:
     user_message = str(message or "").strip()
+    expected_language = _detect_expected_language(user_message)
     attachment_context, image_urls = _build_attachment_context(attachments)
     storage_user_message = _build_storage_user_message(user_message, attachment_context)
     emergency_probe_text = "\n".join(part for part in [user_message, attachment_context] if part).strip()
@@ -559,6 +944,8 @@ async def chat_with_groq(
         attachment_context=attachment_context,
         image_urls=image_urls,
     )
+    language_instruction = _build_turn_language_instruction(expected_language)
+    request_messages = _inject_turn_system_message(request_messages, language_instruction)
 
     selected_model = _resolve_model_for_request(bool(image_urls))
     payload = {
@@ -635,15 +1022,32 @@ async def chat_with_groq(
         ) from exc
 
     ai_reply = _extract_assistant_text(data["choices"][0]["message"]["content"])
+    if not _is_language_compliant(ai_reply, expected_language):
+        try:
+            ai_reply = await _rewrite_reply_for_language(
+                ai_reply,
+                expected_language=expected_language,
+                headers=headers,
+            )
+        except Exception:
+            # Keep original reply if rewrite service fails.
+            pass
+    if not _is_language_compliant(ai_reply, expected_language):
+        try:
+            ai_reply = await _rewrite_reply_for_language(
+                ai_reply,
+                expected_language=expected_language,
+                headers=headers,
+            )
+        except Exception:
+            pass
+    if not _is_language_compliant(ai_reply, expected_language):
+        ai_reply = _build_language_fallback(expected_language)
     await _append_assistant_message(active_session_id, ai_reply)
 
     emergency_prefix = ""
     if is_emergency:
-        emergency_prefix = (
-            "🚨 **Emergency Alert**\n"
-            "This may be a medical emergency.\n"
-            "Please call emergency services (**911** or local emergency number) immediately.\n\n"
-        )
+        emergency_prefix = _build_emergency_prefix(expected_language)
 
     final_response = f"{emergency_prefix}{ai_reply}".strip()
     return ChatResponse(response=final_response, session_id=active_session_id, emergency=is_emergency)

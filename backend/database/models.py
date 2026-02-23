@@ -26,6 +26,7 @@ class Feedback(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     email: Mapped[str] = mapped_column(String(320), index=True, nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
+    rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -41,6 +42,7 @@ class ChatMessage(Base):
     user_email: Mapped[str | None] = mapped_column(String(320), index=True, nullable=True)
     session_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="user", server_default=text("'user'"))
+    text: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default=text("''"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

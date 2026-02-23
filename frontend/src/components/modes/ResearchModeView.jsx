@@ -14,7 +14,7 @@ export default function ResearchModeView({ onSuggestion }) {
       icon={Microscope}
       label="Research"
       title="Evidence-Focused Responses"
-      rootClassName="rounded-2xl border border-sky-300/30 bg-gradient-to-br from-sky-500/12 via-cyan-500/10 to-blue-500/10 p-4"
+      rootClassName="rounded-2xl border border-sky-300/30 bg-gradient-to-br from-sky-500/12 via-cyan-500/10 to-blue-500/10 p-5 sm:p-6"
       iconClassName="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-sky-300/40 bg-sky-500/20 text-sky-50"
       activeItemClassName="border-sky-300/50 bg-sky-500/20 text-sky-100"
       suggestions={RESEARCH_SUGGESTIONS}

@@ -46,6 +46,7 @@ import DrugInfoModeView from './components/modes/DrugInfoModeView';
 import ResearchModeView from './components/modes/ResearchModeView';
 import WhoStatsModeView from './components/modes/WhoStatsModeView';
 import SharedConversationPage from './components/SharedConversationPage';
+import TypewriterText from './components/TypewriterText';
 import {
   RESPONSE_STYLE_OPTIONS,
   normalizePersonalization,
@@ -91,6 +92,7 @@ const PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
 const PASSWORD_RULE_MESSAGE =
   'Password must be at least 8 characters and include uppercase, lowercase, and a number.';
 const AUTH_GENERIC_ERROR = 'Unable to authenticate right now. Please try again.';
+const AUTH_LAST_EMAIL_KEY = 'pd_last_auth_email';
 const PROFILE_NOT_FOUND_MESSAGE = 'Profile not found.';
 const PERSONALIZATION_NOT_FOUND_MESSAGE = 'Personalization not found.';
 const APP_SETTINGS_KEY = 'pd_app_settings';
@@ -530,7 +532,7 @@ function formToProfilePayload(form) {
 
 function toAuthMessage(error) {
   const rawMessage = (error?.message || '').trim();
-  if (!rawMessage) {
+  if (!rawMessage || rawMessage === '[object Object]') {
     return AUTH_GENERIC_ERROR;
   }
   const statusMatch = rawMessage.match(/^Request failed \((\d{3})\)\.?$/);
@@ -542,6 +544,33 @@ function toAuthMessage(error) {
     return AUTH_GENERIC_ERROR;
   }
   return rawMessage;
+}
+
+function readStoredAuthEmail() {
+  if (typeof window === 'undefined') {
+    return '';
+  }
+  try {
+    const value = String(window.localStorage.getItem(AUTH_LAST_EMAIL_KEY) || '').trim().toLowerCase();
+    return EMAIL_PATTERN.test(value) ? value : '';
+  } catch {
+    return '';
+  }
+}
+
+function saveStoredAuthEmail(email) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    const normalized = String(email || '').trim().toLowerCase();
+    if (!EMAIL_PATTERN.test(normalized)) {
+      return;
+    }
+    window.localStorage.setItem(AUTH_LAST_EMAIL_KEY, normalized);
+  } catch {
+    // ignore localStorage write errors
+  }
 }
 
 function createPendingVerificationLogin() {
@@ -646,6 +675,7 @@ export default function App() {
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState('');
   const [authInfo, setAuthInfo] = useState('');
+  const [authLastEmail, setAuthLastEmail] = useState(readStoredAuthEmail);
   const [guestMode, setGuestMode] = useState(false);
   const [resendBusy, setResendBusy] = useState(false);
   const [showResendVerification, setShowResendVerification] = useState(false);
@@ -711,6 +741,7 @@ export default function App() {
   const [helpModalOpen, setHelpModalOpen] = useState(false);
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
   const [reviewText, setReviewText] = useState('');
+  const [reviewRating, setReviewRating] = useState(0);
   const [reviewError, setReviewError] = useState('');
   const [reviewSuccess, setReviewSuccess] = useState('');
   const [reviewSending, setReviewSending] = useState(false);
@@ -814,6 +845,9 @@ export default function App() {
             feedbackPlaceholder: 'اپنا فیڈبیک لکھیں...',
             feedbackMinHint: 'کم از کم 10 حروف',
             feedbackLooksGood: 'درست ہے',
+            feedbackRatingLabel: 'ریٹنگ',
+            feedbackRatingOptional: 'اختیاری',
+            feedbackRatingClear: 'ریٹنگ ہٹائیں',
           }
         : {
             feedbackMinChars: 'Feedback must be at least 10 characters.',
@@ -865,6 +899,9 @@ export default function App() {
             feedbackPlaceholder: 'Write your feedback...',
             feedbackMinHint: 'Minimum 10 characters',
             feedbackLooksGood: 'Looks good',
+            feedbackRatingLabel: 'Rating',
+            feedbackRatingOptional: 'Optional',
+            feedbackRatingClear: 'Clear rating',
           },
     [isUrduUI]
   );
@@ -1238,12 +1275,17 @@ export default function App() {
   const applyBackendSession = useCallback((payload) => {
     const nextToken = payload.access_token;
     const expiry = decodeJwtExpiryMs(nextToken) || Date.now() + 1000 * 60 * 30;
+    const signedInEmail = String(payload?.user?.email || '').trim().toLowerCase();
     setToken(nextToken);
     setTokenExpiryMs(expiry);
     setUser(payload.user);
     localStorage.setItem(TOKEN_KEY, nextToken);
     localStorage.setItem(TOKEN_EXPIRY_KEY, String(expiry));
     localStorage.setItem(USER_KEY, JSON.stringify(payload.user));
+    if (EMAIL_PATTERN.test(signedInEmail)) {
+      saveStoredAuthEmail(signedInEmail);
+      setAuthLastEmail(signedInEmail);
+    }
   }, []);
 
   const completeOtpVerification = useCallback(
@@ -1690,6 +1732,8 @@ export default function App() {
           loginToken: payload?.login_token || '',
           maskedEmail,
         });
+        saveStoredAuthEmail(normalizedEmail);
+        setAuthLastEmail(normalizedEmail);
         setShowResendVerification(true);
 
         setAuthInfo('OTP sent successfully - check your spam folder.');
@@ -1748,6 +1792,72 @@ export default function App() {
     },
     [applyBackendSession]
   );
+
+  const handleRequestPasswordReset = useCallback(async ({ email }) => {
+    setGuestMode(false);
+    setAuthBusy(true);
+    setAuthError('');
+    setAuthInfo('');
+    const normalizedEmail = (email || '').trim().toLowerCase();
+    try {
+      if (!EMAIL_PATTERN.test(normalizedEmail)) {
+        throw new Error('Please enter a valid email address.');
+      }
+      const payload = await api.requestPasswordReset({
+        email: normalizedEmail,
+      });
+      saveStoredAuthEmail(normalizedEmail);
+      setAuthLastEmail(normalizedEmail);
+      setAuthInfo(payload?.message || 'Password reset OTP sent to your email.');
+      return true;
+    } catch (error) {
+      setAuthError(toAuthMessage(error));
+      return false;
+    } finally {
+      setAuthBusy(false);
+    }
+  }, []);
+
+  const handleResetPassword = useCallback(async ({ email, otp, newPassword, confirmPassword }) => {
+    setGuestMode(false);
+    setAuthBusy(true);
+    setAuthError('');
+    setAuthInfo('');
+    const normalizedEmail = (email || '').trim().toLowerCase();
+    const normalizedOtp = String(otp || '').trim();
+    try {
+      if (!EMAIL_PATTERN.test(normalizedEmail)) {
+        throw new Error('Please enter a valid email address.');
+      }
+      if (!normalizedOtp) {
+        throw new Error('Please enter the reset OTP sent to your email.');
+      }
+      if (newPassword !== confirmPassword) {
+        throw new Error('Passwords do not match.');
+      }
+      if (!PASSWORD_PATTERN.test(newPassword || '')) {
+        throw new Error(PASSWORD_RULE_MESSAGE);
+      }
+
+      const payload = await api.resetPassword({
+        email: normalizedEmail,
+        otp: normalizedOtp,
+        new_password: newPassword,
+      });
+      saveStoredAuthEmail(normalizedEmail);
+      setAuthLastEmail(normalizedEmail);
+      setAuthMode('login');
+      setShowResendVerification(false);
+      setPendingVerificationLogin(createPendingVerificationLogin());
+      setAuthInfo(payload?.message || 'Password reset successful. Please sign in.');
+      return true;
+    } catch (error) {
+      setAuthError(toAuthMessage(error));
+      return false;
+    } finally {
+      setAuthBusy(false);
+    }
+  }, []);
 
   const handleGoogleLogin = useCallback(async () => {
     setGuestMode(false);
@@ -2351,6 +2461,7 @@ export default function App() {
     }
     setReviewModalOpen(true);
     setReviewText('');
+    setReviewRating(0);
     setReviewError('');
     setReviewSuccess('');
     setReviewSending(false);
@@ -2396,12 +2507,14 @@ export default function App() {
       try {
         const payload = {
           feedback: normalized,
+          rating: reviewRating > 0 ? reviewRating : undefined,
           user_email: user?.email || undefined,
           user_name: user?.full_name || (inGuestMode ? 'Guest User' : undefined),
         };
         await api.sendFeedback(payload, token || undefined);
         setReviewSuccess(ui.feedbackThanks);
         setReviewText('');
+        setReviewRating(0);
         if (reviewCloseTimerRef.current) {
           window.clearTimeout(reviewCloseTimerRef.current);
         }
@@ -2417,7 +2530,17 @@ export default function App() {
         setReviewSending(false);
       }
     },
-    [inGuestMode, reviewText, token, ui.feedbackMinChars, ui.feedbackSendError, ui.feedbackThanks, user?.email, user?.full_name]
+    [
+      inGuestMode,
+      reviewRating,
+      reviewText,
+      token,
+      ui.feedbackMinChars,
+      ui.feedbackSendError,
+      ui.feedbackThanks,
+      user?.email,
+      user?.full_name,
+    ]
   );
 
   const handleToggleSessionMenu = useCallback((sessionId) => {
@@ -3025,11 +3148,14 @@ export default function App() {
         busy={authBusy}
         error={authError}
         info={authInfo}
+        initialEmail={authLastEmail}
         showResendVerification={showResendVerification}
         resendBusy={resendBusy}
         onModeChange={handleAuthModeChange}
         onEmailLogin={handleEmailLogin}
         onEmailSignup={handleEmailSignup}
+        onRequestPasswordReset={handleRequestPasswordReset}
+        onResetPassword={handleResetPassword}
         onGoogleLogin={handleGoogleLogin}
         onResendVerification={handleResendVerification}
         onContinueAsGuest={handleContinueAsGuest}
@@ -3493,9 +3619,9 @@ export default function App() {
               {loadingHistory && <div className="flex items-center gap-2 text-sm text-slate-300"><Loader2 size={15} className="animate-spin" />{ui.loadingConversation}</div>}
               {!sortedMessages.length && !loadingHistory && (
                 activeMode === 'chat' ? (
-                  <div className="chat-empty-hero relative mx-auto w-full max-w-3xl overflow-hidden rounded-3xl border border-white/10 bg-slate-950/20 px-4 py-5 sm:px-5 sm:py-6">
+                  <div className="chat-empty-hero relative mx-auto w-full max-w-[920px] overflow-hidden rounded-3xl border border-white/10 bg-slate-950/20 px-4 py-6 sm:px-6 sm:py-7">
                     <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_35%,rgba(167,243,208,0.08),transparent_55%)]" />
-                    <div className="relative mx-auto flex max-w-3xl flex-col items-center text-center">
+                    <div className="relative mx-auto flex max-w-2xl flex-col items-center text-center">
                       <div className="pd-stethoscope-emerald inline-flex h-[60px] w-[60px] items-center justify-center rounded-2xl border border-emerald-300/30 bg-emerald-300/15 text-emerald-200 shadow-[0_10px_24px_rgba(16,185,129,0.16)] sm:h-[68px] sm:w-[68px]">
                         <Stethoscope size={26} strokeWidth={1.8} />
                       </div>
@@ -3505,26 +3631,29 @@ export default function App() {
                       <p className="mt-2.5 max-w-xl text-sm leading-relaxed text-slate-300 sm:text-[15px]">
                         {ui.heroDescription}
                       </p>
-                      <div className="mt-4 grid w-full max-w-4xl gap-2 sm:grid-cols-3">
-                        {chatEmptySuggestions.map((suggestion) => (
+                      <div className="mt-4 grid w-full max-w-[840px] gap-2 sm:grid-cols-3">
+                        {chatEmptySuggestions.map((suggestion, index) => (
                           <button
                             key={suggestion}
                             type="button"
                             onClick={() => handleModeSuggestion(suggestion)}
                             className="mobile-touch-target rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white sm:text-sm"
+                            aria-label={suggestion}
                           >
-                            {suggestion}
+                            <span className="sr-only">{suggestion}</span>
+                            <TypewriterText
+                              text={suggestion}
+                              startDelay={index * 220}
+                              speed={22}
+                            />
                           </button>
                         ))}
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="mx-auto w-full max-w-[920px]">
                     {renderModeInterface}
-                    <div className="rounded-xl border border-dashed border-white/20 bg-white/5 p-6 text-center text-slate-300">
-                      {ui.startConversationHint}
-                    </div>
                   </div>
                 )
               )}
@@ -3686,7 +3815,6 @@ export default function App() {
                     ref={textAreaRef}
                     value={draft}
                     onChange={(event) => setDraft(event.target.value)}
-                    onPaste={handleComposerPaste}
                     onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); handleSendMessage(); } }}
                     placeholder={activeModeConfig.placeholder}
                     rows={1}
@@ -3913,6 +4041,43 @@ export default function App() {
             <p className="text-xs uppercase tracking-wider text-slate-400">{ui.feedbackHeading}</p>
             <h2 className="mt-1 text-lg font-semibold text-white">{ui.feedbackTitle}</h2>
             <form className="mt-4 space-y-3" onSubmit={handleReviewSubmit}>
+              <div>
+                <div className="mb-1 flex items-center justify-between text-xs text-slate-300">
+                  <span>{ui.feedbackRatingLabel}</span>
+                  <button
+                    type="button"
+                    onClick={() => setReviewRating(0)}
+                    disabled={reviewSending || reviewRating === 0}
+                    className="text-xs text-slate-400 underline decoration-slate-500 underline-offset-2 hover:text-slate-200 disabled:cursor-default disabled:opacity-40"
+                  >
+                    {ui.feedbackRatingClear}
+                  </button>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {[1, 2, 3, 4, 5].map((value) => {
+                    const active = value <= reviewRating;
+                    return (
+                      <button
+                        key={`review-star-${value}`}
+                        type="button"
+                        onClick={() => setReviewRating(value)}
+                        disabled={reviewSending}
+                        className={`mobile-touch-target rounded-md border px-2 py-1 text-base leading-none transition ${
+                          active
+                            ? 'border-amber-300/60 bg-amber-400/15 text-amber-300'
+                            : 'border-white/15 bg-slate-950 text-slate-500 hover:text-slate-300'
+                        }`}
+                        aria-label={`${ui.feedbackRatingLabel} ${value}`}
+                        aria-pressed={active}
+                      >
+                        ★
+                      </button>
+                    );
+                  })}
+                  <span className="ml-1 text-xs text-slate-400">{ui.feedbackRatingOptional}</span>
+                </div>
+              </div>
+
               <div>
                 <textarea
                   value={reviewText}

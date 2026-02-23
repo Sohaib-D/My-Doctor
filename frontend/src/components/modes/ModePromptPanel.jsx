@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import TypewriterText from '../TypewriterText';
 
 export default function ModePromptPanel({
   icon: Icon,
@@ -13,7 +14,7 @@ export default function ModePromptPanel({
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   return (
-    <div className={rootClassName}>
+    <div className={`mx-auto w-full max-w-[920px] ${rootClassName}`}>
       <div className="flex items-center gap-3">
         <div className={iconClassName}>
           <Icon size={18} />
@@ -37,12 +38,18 @@ export default function ModePromptPanel({
                 ? activeItemClassName
                 : 'border-white/10 bg-slate-900/60 text-slate-200 hover:bg-slate-800/80'
             }`}
+            aria-label={item}
           >
-            {item}
+            <span className="sr-only">{item}</span>
+            <TypewriterText
+              text={item}
+              startDelay={index * 180}
+              speed={22}
+              className="leading-relaxed"
+            />
           </button>
         ))}
       </div>
     </div>
   );
 }
-

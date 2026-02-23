@@ -14,7 +14,7 @@ export default function WhoStatsModeView({ onSuggestion }) {
       icon={Globe2}
       label="WHO Stats"
       title="Global Health and Population Insights"
-      rootClassName="rounded-2xl border border-emerald-300/30 bg-gradient-to-br from-blue-500/12 via-emerald-500/10 to-cyan-500/10 p-4"
+      rootClassName="rounded-2xl border border-emerald-300/30 bg-gradient-to-br from-blue-500/12 via-emerald-500/10 to-cyan-500/10 p-5 sm:p-6"
       iconClassName="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-300/40 bg-gradient-to-br from-blue-500/25 to-emerald-500/25 text-emerald-50"
       activeItemClassName="border-emerald-300/50 bg-emerald-500/20 text-emerald-100"
       suggestions={WHO_SUGGESTIONS}

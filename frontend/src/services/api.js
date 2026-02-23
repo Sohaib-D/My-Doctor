@@ -90,18 +90,67 @@ async function readJsonSafe(response) {
   }
 }
 
+function toReadableMessage(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((item) => toReadableMessage(item))
+      .filter(Boolean);
+    return parts.join(', ');
+  }
+  if (typeof value === 'object') {
+    const loc = Array.isArray(value.loc) ? value.loc.filter(Boolean).join('.') : '';
+    const msg = typeof value.msg === 'string' ? value.msg.trim() : '';
+    if (msg && loc) {
+      return `${loc}: ${msg}`;
+    }
+    if (msg) {
+      return msg;
+    }
+    if (value.detail !== undefined) {
+      const nested = toReadableMessage(value.detail);
+      if (nested) {
+        return nested;
+      }
+    }
+    if (value.message !== undefined) {
+      const nested = toReadableMessage(value.message);
+      if (nested) {
+        return nested;
+      }
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
 function toMessage(status, payload) {
   if (!payload) {
     return `Request failed (${status}).`;
   }
   if (typeof payload === 'string') {
-    return payload;
+    return payload.trim() || `Request failed (${status}).`;
   }
-  if (payload.detail) {
-    return payload.detail;
+  if (payload.detail !== undefined) {
+    const detailMessage = toReadableMessage(payload.detail);
+    if (detailMessage) {
+      return detailMessage;
+    }
   }
-  if (payload.message) {
-    return payload.message;
+  if (payload.message !== undefined) {
+    const messageText = toReadableMessage(payload.message);
+    if (messageText) {
+      return messageText;
+    }
   }
   return `Request failed (${status}).`;
 }
@@ -163,6 +212,18 @@ export const api = {
   },
   loginWithEmail(payload) {
     return request('/auth/login', {
+      method: 'POST',
+      body: payload,
+    });
+  },
+  requestPasswordReset(payload) {
+    return request('/auth/forgot-password', {
+      method: 'POST',
+      body: payload,
+    });
+  },
+  resetPassword(payload) {
+    return request('/auth/reset-password', {
       method: 'POST',
       body: payload,
     });
@@ -293,12 +354,16 @@ export const api = {
     const email = BASIC_EMAIL_PATTERN.test(userEmail) ? userEmail : 'guest@local.invalid';
     const name = String(payload?.user_name || '').trim() || 'Guest User';
     const message = String(payload?.feedback || '').trim();
+    const parsedRating = Number(payload?.rating);
+    const rating =
+      Number.isInteger(parsedRating) && parsedRating >= 1 && parsedRating <= 5 ? parsedRating : null;
     return request('/feedback', {
       method: 'POST',
       body: {
         name,
         email,
         message,
+        rating,
       },
       token,
       allowUnauthenticated: true,

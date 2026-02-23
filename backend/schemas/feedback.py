@@ -7,6 +7,7 @@ class FeedbackCreate(BaseModel):
     name: str = Field(min_length=2, max_length=100)
     email: str
     message: str = Field(min_length=10, max_length=2000)
+    rating: int | None = Field(default=None, ge=1, le=5)
 
     @field_validator("email")
     @classmethod
