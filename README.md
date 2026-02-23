@@ -82,6 +82,104 @@ alembic upgrade head
 uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+## Project Structure
+
+```text
+d:\My Doctor
+|- .env
+|- .env.example
+|- .gitignore
+|- .pytest_cache/
+|- __pycache__/
+|- .venv/
+|- venv/
+|- README.md
+|- alembic.ini
+|- main.py
+|- render.yaml
+|- requirements.txt
+|- runtime.txt
+|- alembic/
+|  |- env.py
+|  |- script.py.mako
+|  \- versions/
+|     |- __init__.py
+|     |- 20260222_000001_create_users_table.py
+|     |- 20260222_000002_create_feedback_table.py
+|     |- 20260222_000003_create_chat_messages_table.py
+|     \- 20260223_000004_add_chat_text_and_feedback_rating.py
+|- backend/
+|  |- __init__.py
+|  |- config.py
+|  |- main.py
+|  |- auth/
+|  |  |- __init__.py
+|  |  |- deps.py
+|  |  \- jwt.py
+|  |- database/
+|  |  |- __init__.py
+|  |  |- models.py
+|  |  \- session.py
+|  |- routers/
+|  |  |- __init__.py
+|  |  |- admin.py
+|  |  |- auth.py
+|  |  |- chat.py
+|  |  |- feedback.py
+|  |  \- signup.py
+|  |- schemas/
+|  |  |- __init__.py
+|  |  |- chat.py
+|  |  \- feedback.py
+|  |- services/
+|  |  |- __init__.py
+|  |  |- email_service.py
+|  |  |- groq_service.py
+|  |  \- test_groq_service.py
+|  \- templates/
+|     \- .gitkeep
+|- frontend/
+|  |- .env
+|  |- .env.example
+|  |- index.html
+|  |- package-lock.json
+|  |- package.json
+|  |- postcss.config.js
+|  |- tailwind.config.js
+|  |- vite.config.js
+|  |- dist/
+|  |- node_modules/
+|  |- public/
+|  |  \- favicon.svg
+|  \- src/
+|     |- App.jsx
+|     |- index.css
+|     |- main.jsx
+|     |- components/
+|     |  |- AuthCard.jsx
+|     |  |- DrAmnaCharacter.jsx
+|     |  |- MedicalBackground.jsx
+|     |  |- SharedConversationPage.jsx
+|     |  |- TypewriterText.jsx
+|     |  \- modes/
+|     |     |- ChatModeView.jsx
+|     |     |- DrugInfoModeView.jsx
+|     |     |- ModePromptPanel.jsx
+|     |     |- ResearchModeView.jsx
+|     |     \- WhoStatsModeView.jsx
+|     |- context/
+|     |  \- PersonalizationContext.jsx
+|     |- services/
+|     |  |- api.js
+|     |  \- googleAuth.js
+|     \- utils/
+|        \- chat.js
+|- scripts/
+|  \- predeploy_check.ps1
+\- static/
+   \- .gitkeep
+```
+
 ## Admin Panel Credentials
 
 Set these in `.env` / Render:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 from html import escape
+import re
 from urllib.parse import parse_qs
 
 import bcrypt
@@ -16,7 +17,7 @@ from sqlalchemy.orm import Session
 from backend.config import get_settings
 from backend.database.models import ChatMessage, Feedback, User
 from backend.database.session import get_db
-from backend.services.groq_service import list_session_summaries
+from backend.services.groq_service import get_session_history, list_session_summaries
 
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -26,6 +27,9 @@ USER_FILTER_OPTIONS = {"all", "verified", "guest"}
 FEEDBACK_FILTER_OPTIONS = {"all", "verified", "guest"}
 PKT_TZ = timezone(timedelta(hours=5), name="PKT")
 PKT_LABEL = "PKT"
+_ATTACHMENT_ICON_COUNT_RE = re.compile(r"\U0001F4CE\s*(\d+)")
+_ATTACHMENT_SENT_COUNT_RE = re.compile(r"\[(\d+)\s+attachments?\s+sent\]", re.IGNORECASE)
+_ATTACHMENT_CONTEXT_RE = re.compile(r"(?m)^\[(?:file|image|attachment)\s+\d+:", re.IGNORECASE)
 
 
 def _admin_email() -> str:
@@ -382,6 +386,24 @@ def _guest_runtime_session_counts(db: Session) -> dict[str, int]:
     return session_counts
 
 
+def _guest_runtime_attachment_counts(runtime_guest_sessions: dict[str, int]) -> dict[str, int]:
+    attachment_counts: dict[str, int] = {}
+    for session_id in runtime_guest_sessions:
+        total = 0
+        try:
+            messages = asyncio.run(get_session_history(session_id))
+        except Exception:
+            attachment_counts[session_id] = 0
+            continue
+
+        for item in messages:
+            if str((item or {}).get("role") or "").strip().lower() != "user":
+                continue
+            total += _extract_attachment_count((item or {}).get("text"))
+        attachment_counts[session_id] = total
+    return attachment_counts
+
+
 def _count_guest_users(
     db: Session,
     verified_emails: set[str],
@@ -487,6 +509,66 @@ def _message_counts_by_user(db: Session, table: str | None, columns: set[str]) -
     return "none", {}, total
 
 
+def _extract_attachment_count(message_text: str | None) -> int:
+    value = str(message_text or "")
+    if not value:
+        return 0
+
+    contextual_count = len(_ATTACHMENT_CONTEXT_RE.findall(value))
+    icon_count = sum(int(raw) for raw in _ATTACHMENT_ICON_COUNT_RE.findall(value))
+    sent_count = sum(int(raw) for raw in _ATTACHMENT_SENT_COUNT_RE.findall(value))
+    marker_count = icon_count + sent_count
+    return max(contextual_count, marker_count)
+
+
+def _attachment_counts_by_user(db: Session, table: str | None, columns: set[str]) -> tuple[str, dict[str, int]]:
+    if not table or "text" not in columns:
+        return "none", {}
+
+    role_filter_sql = ""
+    if "role" in columns:
+        role_filter_sql = ' WHERE LOWER("role") = \'user\' AND "text" IS NOT NULL AND "text" != \'\''
+    else:
+        role_filter_sql = ' WHERE "text" IS NOT NULL AND "text" != \'\''
+
+    if "user_id" in columns:
+        query = text(
+            f'SELECT "user_id"::text AS user_key, "text" AS body '
+            f'FROM "{table}"{role_filter_sql}'
+        )
+        rows = db.execute(query).mappings().all()
+        counts: dict[str, int] = {}
+        for row in rows:
+            raw_key = row.get("user_key")
+            if raw_key is None:
+                continue
+            key = str(raw_key).strip()
+            if not key:
+                continue
+            counts[key] = counts.get(key, 0) + _extract_attachment_count(row.get("body"))
+        return "user_id", counts
+
+    email_column = "user_email" if "user_email" in columns else ("email" if "email" in columns else None)
+    if email_column:
+        query = text(
+            f'SELECT LOWER("{email_column}") AS user_key, "text" AS body '
+            f'FROM "{table}"{role_filter_sql}'
+        )
+        rows = db.execute(query).mappings().all()
+        counts: dict[str, int] = {}
+        for row in rows:
+            raw_key = row.get("user_key")
+            if raw_key is None:
+                continue
+            key = str(raw_key).strip().lower()
+            if not key:
+                continue
+            counts[key] = counts.get(key, 0) + _extract_attachment_count(row.get("body"))
+        return "email", counts
+
+    return "none", {}
+
+
 def _groq_usage_summary(db: Session, table: str | None, columns: set[str], fallback_used: int) -> str:
     limit = get_settings().groq_daily_limit
     if limit <= 0:
@@ -573,6 +655,7 @@ def _dashboard_page(
           <th>Email</th>
           <th>Verified</th>
           <th>Messages Sent</th>
+          <th>Photos/Files Attached</th>
         </tr>
       </thead>
       <tbody>
@@ -712,6 +795,7 @@ def admin_dashboard(
         ).all()
         verified_emails = {str(row[0] or "").strip().lower() for row in verified_email_rows if row and row[0]}
         runtime_guest_sessions = _guest_runtime_session_counts(db)
+        runtime_guest_attachment_counts = _guest_runtime_attachment_counts(runtime_guest_sessions)
 
         total_registered_users = _count_registered_users(db)
         total_guest_users = _count_guest_users(db, verified_emails, runtime_guest_sessions)
@@ -741,23 +825,32 @@ def admin_dashboard(
                         "email": session_label,
                         "verified": "No",
                         "message_count": int(message_count),
+                        "attachment_count": int(runtime_guest_attachment_counts.get(session_id, 0)),
                     }
                 )
 
         table, columns = _find_message_table(db)
         count_mode, counts, total_messages = _message_counts_by_user(db, table, columns)
+        attachment_mode, attachment_counts = _attachment_counts_by_user(db, table, columns)
         groq_summary = _groq_usage_summary(db, table, columns, total_messages)
 
         user_rows: list[str] = []
         for user in users:
             key = str(user.id) if count_mode == "user_id" else user.email.lower()
             message_count = counts.get(key, 0) if count_mode in {"user_id", "email"} else 0
+            attachment_key = str(user.id) if attachment_mode == "user_id" else user.email.lower()
+            attachment_count = (
+                attachment_counts.get(attachment_key, 0)
+                if attachment_mode in {"user_id", "email"}
+                else 0
+            )
             user_rows.append(
                 "<tr>"
                 f"<td>{user.id}</td>"
                 f"<td>{escape(user.email)}</td>"
                 f"<td>{'Yes' if user.is_verified else 'No'}</td>"
                 f"<td>{message_count}</td>"
+                f"<td>{attachment_count}</td>"
                 "</tr>"
             )
         for guest_row in guest_session_rows:
@@ -767,9 +860,10 @@ def admin_dashboard(
                 f"<td>{escape(str(guest_row['email']))}</td>"
                 f"<td>{escape(str(guest_row['verified']))}</td>"
                 f"<td>{int(guest_row['message_count'])}</td>"
+                f"<td>{int(guest_row['attachment_count'])}</td>"
                 "</tr>"
             )
-        users_rows_html = "\n".join(user_rows) if user_rows else '<tr><td colspan="4">No users found.</td></tr>'
+        users_rows_html = "\n".join(user_rows) if user_rows else '<tr><td colspan="5">No users found.</td></tr>'
 
         feedback_items = list(
             db.execute(select(Feedback).order_by(Feedback.created_at.desc(), Feedback.id.desc()).limit(500))

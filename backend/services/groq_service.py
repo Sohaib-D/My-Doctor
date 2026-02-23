@@ -59,8 +59,8 @@ Language rule:
 - English -> English
 - Urdu script -> Urdu script with pure Urdu vocabulary (no any other language) and proper Urdu punctuation (\u06d4 \u060c \u061f).
 - Roman Urdu -> Roman Urdu (Latin letters only).
-- Never switch language on your own. If user writes English or Roman Urdu, do not reply in Urdu script unless user explicitly asks.
-- If the user in any language (Roman Urdu or English) explicitly asks for Urdu script replies, reply in Urdu Script.
+- Never switch language on your own. If user writes English or Roman Urdu, do not reply in Urdu script unless user explicitly orders.
+- If the user in any language (Roman Urdu or English) explicitly orders Urdu script replies, reply in Urdu Script.
 - For Urdu script replies: do not use Devanagari/Hindi words or mixed scripts.
 - Keep formatting clear with headings and bullets when useful.
 
@@ -145,8 +145,21 @@ _MAX_IMAGE_ATTACHMENTS_PER_TURN = 3
 _URDU_SCRIPT_RE = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]")
 _DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
 _LATIN_RE = re.compile(r"[A-Za-z]")
-# ascii punctuation characters not allowed in pure Urdu-script replies
-_ASCII_PUNCT_RE = re.compile(r"[!\"#$%&'()*+,\-./:;<=>?@\[\]^_`{|}~]")
+_URDU_LIST_MARKER_RE = re.compile(r"(?m)^\s*[-*+]\s+")
+_URDU_MARKDOWN_DECORATION_RE = re.compile(r"[`*_#]+")
+_URDU_BRACKETS_RE = re.compile(r"[()\[\]{}]")
+_URDU_MULTISPACE_RE = re.compile(r"[ \t]{2,}")
+_URDU_EXCESS_NEWLINES_RE = re.compile(r"\n{3,}")
+_URDU_ASCII_PUNCT_TRANSLATION = str.maketrans(
+    {
+        "?": "\u061f",
+        ",": "\u060c",
+        ";": "\u061b",
+        ".": "\u06d4",
+        ":": "\u06d4",
+        "!": "\u06d4",
+    }
+)
 
 _LANG_ENGLISH = "english"
 _LANG_URDU_SCRIPT = "urdu_script"
@@ -262,9 +275,9 @@ _ENGLISH_HINTS = {
 }
 
 _URDU_SCRIPT_PHRASES = (
-    "اردو میں",
-    "اُردو میں",
-    "اردو ميں",
+    "Ã˜Â§Ã˜Â±Ã˜Â¯Ã™Ë† Ã™â€¦Ã›Å’ÃšÂº",
+    "Ã˜Â§Ã™ÂÃ˜Â±Ã˜Â¯Ã™Ë† Ã™â€¦Ã›Å’ÃšÂº",
+    "Ã˜Â§Ã˜Â±Ã˜Â¯Ã™Ë† Ã™â€¦Ã™Å ÃšÂº",
 )
 
 _URDU_SCRIPT_REQUEST_PATTERNS = (
@@ -378,12 +391,32 @@ def _inject_turn_system_message(messages: list[dict[str, Any]], instruction: str
     return [*messages, system_message]
 
 
+def _normalize_urdu_script_reply(text: str) -> str:
+    value = str(text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not value:
+        return ""
+
+    value = _URDU_LIST_MARKER_RE.sub("\u2022 ", value)
+    value = _URDU_MARKDOWN_DECORATION_RE.sub("", value)
+    value = value.translate(_URDU_ASCII_PUNCT_TRANSLATION)
+    value = _URDU_BRACKETS_RE.sub(" ", value)
+    value = _URDU_MULTISPACE_RE.sub(" ", value)
+    value = _URDU_EXCESS_NEWLINES_RE.sub("\n\n", value)
+    return value.strip()
+
+
+def _normalize_reply_for_expected_language(text: str, expected_language: str) -> str:
+    value = str(text or "").strip()
+    if expected_language == _LANG_URDU_SCRIPT:
+        return _normalize_urdu_script_reply(value)
+    return value
+
+
 def _is_language_compliant(text: str, expected_language: str) -> bool:
     """Return True if *text* appears to comply with *expected_language*.
 
     - Urdu-script responses must contain Urdu characters,
-      may not include Latin or Devanagari scripts, and
-      must avoid ASCII punctuation (use Urdu punctuation marks).
+      and may not include Latin or Devanagari scripts.
     - Roman Urdu responses are composed of Latin words that look
       like Urdu and must not contain native script characters.
     - English responses may not contain Urdu/Devanagari text and
@@ -401,9 +434,6 @@ def _is_language_compliant(text: str, expected_language: str) -> bool:
         if _contains_devanagari(value):
             return False
         if _contains_latin(value):
-            return False
-        # punctuation must be Urdu style only
-        if _ASCII_PUNCT_RE.search(value):
             return False
         return True
 
@@ -466,12 +496,10 @@ async def _rewrite_reply_for_language(
     ai_reply: str,
     *,
     expected_language: str,
-    headers: dict[str, str],
 ) -> str:
     rewrite_instruction = _build_language_rewrite_instruction(expected_language)
-    payload = {
-        "model": GROQ_MODEL,
-        "messages": [
+    rewritten = await generate_with_fallback(
+        [
             {
                 "role": "system",
                 "content": (
@@ -487,12 +515,8 @@ async def _rewrite_reply_for_language(
                     f"{ai_reply}"
                 ),
             },
-        ],
-        "temperature": 0.1,
-        "max_tokens": 1024,
-    }
-    data = await _request_groq_with_retry(payload, headers)
-    rewritten = _extract_assistant_text(data["choices"][0]["message"]["content"])
+        ]
+    )
     return rewritten or ai_reply
 
 
@@ -1070,11 +1094,6 @@ async def chat_with_groq(
     if not GROQ_API_KEY:
         raise ValueError("GROQ_API_KEY environment variable is not set.")
 
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
     active_session_id, history = await _append_user_message(session_id, storage_user_message)
     request_messages = _build_request_messages(
         history,
@@ -1086,13 +1105,14 @@ async def chat_with_groq(
     request_messages = _inject_turn_system_message(request_messages, language_instruction)
 
     ai_reply = await generate_with_fallback(request_messages)
+    ai_reply = _normalize_reply_for_expected_language(ai_reply, expected_language)
     if not _is_language_compliant(ai_reply, expected_language):
         try:
             ai_reply = await _rewrite_reply_for_language(
                 ai_reply,
                 expected_language=expected_language,
-                headers=headers,
             )
+            ai_reply = _normalize_reply_for_expected_language(ai_reply, expected_language)
         except Exception:
             # Keep original reply if rewrite service fails.
             pass
@@ -1101,8 +1121,8 @@ async def chat_with_groq(
             ai_reply = await _rewrite_reply_for_language(
                 ai_reply,
                 expected_language=expected_language,
-                headers=headers,
             )
+            ai_reply = _normalize_reply_for_expected_language(ai_reply, expected_language)
         except Exception:
             pass
     if not _is_language_compliant(ai_reply, expected_language):
