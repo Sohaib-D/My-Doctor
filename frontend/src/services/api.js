@@ -155,9 +155,20 @@ function toMessage(status, payload) {
   return `Request failed (${status}).`;
 }
 
-async function request(path, { method = 'GET', body, token, signal, allowUnauthenticated = false } = {}) {
+async function request(
+  path,
+  {
+    method = 'GET',
+    body,
+    token,
+    signal,
+    allowUnauthenticated = false,
+    timeoutMs = 20000,
+    timeoutMessage = '',
+  } = {}
+) {
   for (const base of API_BASES) {
-    const { signal: timedSignal, clear } = withTimeout(signal);
+    const { signal: timedSignal, clear } = withTimeout(signal, timeoutMs);
     try {
       const response = await fetch(buildUrl(base, path), {
         method,
@@ -175,8 +186,10 @@ async function request(path, { method = 'GET', body, token, signal, allowUnauthe
       }
       return payload;
     } catch (error) {
-      const isNetworkIssue =
-        error instanceof TypeError || error?.name === 'AbortError' || error?.message === 'Failed to fetch';
+      if (error?.name === 'AbortError') {
+        throw new Error(timeoutMessage || 'Request timed out. Please try again.');
+      }
+      const isNetworkIssue = error instanceof TypeError || error?.message === 'Failed to fetch';
       if (!isNetworkIssue) {
         throw error;
       }
@@ -253,6 +266,8 @@ export const api = {
       body: payload,
       token,
       allowUnauthenticated: true,
+      timeoutMs: 120000,
+      timeoutMessage: 'Server is taking longer than expected. Please wait a bit and try again.',
     });
   },
   pinChat(sessionId, isPinned, token) {

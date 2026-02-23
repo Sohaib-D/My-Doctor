@@ -61,6 +61,19 @@ alembic upgrade head && uvicorn backend.main:app --host 0.0.0.0 --port $PORT
 
 ## Local Run
 
+## Language policy for AI replies
+
+The backend enforces strict language rules when communicating with the Groq model. A few highlights:
+
+- Responses must match the **language of the user message** (English, Urdu script, or Roman Urdu).
+- Urdu‑script replies use only Urdu characters, **no Latin/Devanagari text**, and must employ proper Urdu punctuation (۔ ، ؟). ASCII punctuation is rejected and triggers a rewrite or fallback.
+- Roman Urdu replies are limited to Latin letters and are detected via a heuristic token list.
+- The system may rewrite or provide a built‑in fallback message if the generated text does not comply.
+
+These rules are implemented in `backend/services/groq_service.py` and there are accompanying unit tests (`test_groq_service.py`) for detection/compliance.
+
+## Local Run
+
 ```bash
 python -m venv .venv
 .venv\Scripts\activate

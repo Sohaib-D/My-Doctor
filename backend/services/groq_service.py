@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
 import secrets
@@ -17,8 +18,12 @@ from backend.schemas.chat import ChatAttachment, ChatResponse
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
-GROQ_VISION_MODEL = os.getenv("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct").strip()
+PRIMARY_MODEL = (os.getenv("PRIMARY_MODEL") or "").strip()
+SECONDARY_MODEL = (os.getenv("SECONDARY_MODEL") or "").strip()
+TERTIARY_MODEL = (os.getenv("TERTIARY_MODEL") or "").strip()
+GROQ_MODEL = PRIMARY_MODEL
+GROQ_VISION_MODEL = (os.getenv("GROQ_VISION_MODEL") or "").strip()
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """
 You are a clinically trained medical assistant (Female Doctor) named "Dr. Amna".
@@ -52,9 +57,10 @@ Language rule:
 - Reply in the same language the user uses.
 - Determine reply language from the latest user message in the current turn.
 - English -> English
-- Urdu script -> Urdu script with pure Urdu vocabulary (no any other language) and proper Urdu punctuation (۔ ، ؟).
+- Urdu script -> Urdu script with pure Urdu vocabulary (no any other language) and proper Urdu punctuation (\u06d4 \u060c \u061f).
 - Roman Urdu -> Roman Urdu (Latin letters only).
 - Never switch language on your own. If user writes English or Roman Urdu, do not reply in Urdu script unless user explicitly asks.
+- If the user in any language (Roman Urdu or English) explicitly asks for Urdu script replies, reply in Urdu Script.
 - For Urdu script replies: do not use Devanagari/Hindi words or mixed scripts.
 - Keep formatting clear with headings and bullets when useful.
 
@@ -139,6 +145,8 @@ _MAX_IMAGE_ATTACHMENTS_PER_TURN = 3
 _URDU_SCRIPT_RE = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]")
 _DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
 _LATIN_RE = re.compile(r"[A-Za-z]")
+# ascii punctuation characters not allowed in pure Urdu-script replies
+_ASCII_PUNCT_RE = re.compile(r"[!\"#$%&'()*+,\-./:;<=>?@\[\]^_`{|}~]")
 
 _LANG_ENGLISH = "english"
 _LANG_URDU_SCRIPT = "urdu_script"
@@ -253,6 +261,20 @@ _ENGLISH_HINTS = {
     "your",
 }
 
+_URDU_SCRIPT_PHRASES = (
+    "اردو میں",
+    "اُردو میں",
+    "اردو ميں",
+)
+
+_URDU_SCRIPT_REQUEST_PATTERNS = (
+    re.compile(r"\burdu\s+script\b", re.IGNORECASE),
+    re.compile(r"\bin\s+urdu\b", re.IGNORECASE),
+    re.compile(r"\burdu\s+(mein|main|me|may|mai)\b", re.IGNORECASE),
+    re.compile(r"\b(reply|write|answer)\s+in\s+urdu\b", re.IGNORECASE),
+    re.compile(r"\burdu\s+(likho|likhen|likhein|jawab|batao|btao)\b", re.IGNORECASE),
+)
+
 
 def _roman_urdu_hit_count(tokens: list[str]) -> int:
     return sum(1 for token in tokens if token in _ROMAN_URDU_HINTS)
@@ -298,10 +320,23 @@ def _tokenize_latin_words(text: str) -> list[str]:
     return re.findall(r"[A-Za-z']+", str(text or "").lower())
 
 
+def _explicitly_requests_urdu_script(text: str) -> bool:
+    raw = str(text or "").strip()
+    if not raw:
+        return False
+    lowered = raw.lower()
+    if any(phrase in raw for phrase in _URDU_SCRIPT_PHRASES):
+        return True
+    return any(pattern.search(lowered) for pattern in _URDU_SCRIPT_REQUEST_PATTERNS)
+
+
 def _detect_expected_language(user_message: str) -> str:
     text = str(user_message or "").strip()
     if not text:
         return _LANG_ENGLISH
+
+    if _explicitly_requests_urdu_script(text):
+        return _LANG_URDU_SCRIPT
 
     if _contains_urdu_script(text):
         return _LANG_URDU_SCRIPT
@@ -318,7 +353,7 @@ def _detect_expected_language(user_message: str) -> str:
 def _build_turn_language_instruction(expected_language: str) -> str:
     if expected_language == _LANG_URDU_SCRIPT:
         return (
-            "Reply only in Urdu script. Use pure Urdu vocabulary with proper Urdu punctuation (۔ ، ؟). "
+            "Reply only in Urdu script. Use pure Urdu vocabulary with proper Urdu punctuation (\u06d4 \u060c \u061f). "
             "Do not use English, Roman Urdu, Devanagari, or mixed scripts. "
             "When referring to yourself, use feminine wording."
         )
@@ -329,6 +364,7 @@ def _build_turn_language_instruction(expected_language: str) -> str:
             "When referring to yourself, use feminine wording."
         )
     return "Reply only in English. Do not use Urdu script or Devanagari."
+
 
 
 def _inject_turn_system_message(messages: list[dict[str, Any]], instruction: str) -> list[dict[str, Any]]:
@@ -343,25 +379,42 @@ def _inject_turn_system_message(messages: list[dict[str, Any]], instruction: str
 
 
 def _is_language_compliant(text: str, expected_language: str) -> bool:
+    """Return True if *text* appears to comply with *expected_language*.
+
+    - Urdu-script responses must contain Urdu characters,
+      may not include Latin or Devanagari scripts, and
+      must avoid ASCII punctuation (use Urdu punctuation marks).
+    - Roman Urdu responses are composed of Latin words that look
+      like Urdu and must not contain native script characters.
+    - English responses may not contain Urdu/Devanagari text and
+      should not resemble Roman Urdu.
+    """
     value = str(text or "").strip()
     if not value:
         return False
 
     if expected_language == _LANG_URDU_SCRIPT:
+        # must contain at least one Urdu script character
         if not _contains_urdu_script(value):
             return False
+        # disallow other scripts
         if _contains_devanagari(value):
             return False
         if _contains_latin(value):
             return False
+        # punctuation must be Urdu style only
+        if _ASCII_PUNCT_RE.search(value):
+            return False
         return True
 
     if expected_language == _LANG_ROMAN_URDU:
+        # roman urdu should have only latin letters and not any native script
         if _contains_urdu_script(value) or _contains_devanagari(value):
             return False
         tokens = _tokenize_latin_words(value)
         return _looks_like_roman_urdu(tokens)
 
+    # expected English
     if _contains_urdu_script(value) or _contains_devanagari(value):
         return False
     tokens = _tokenize_latin_words(value)
@@ -375,7 +428,7 @@ def _build_language_rewrite_instruction(expected_language: str) -> str:
         return (
             "Rewrite the response in pure Urdu script only. "
             "Keep the same medical meaning, structure, and safety notes. "
-            "Use Urdu punctuation (۔ ، ؟). "
+            "Use pure Urdu vocabulary and proper Urdu punctuation (\u06d4 \u060c \u061f). "
             "Do not use English, Roman Urdu, Devanagari, or mixed scripts. "
             "Use feminine wording for self-reference."
         )
@@ -396,8 +449,8 @@ def _build_language_rewrite_instruction(expected_language: str) -> str:
 def _build_language_fallback(expected_language: str) -> str:
     if expected_language == _LANG_URDU_SCRIPT:
         return (
-            "میں آپ کی مدد کے لیے موجود ہوں۔ "
-            "براہِ کرم اپنا طبی سوال واضح انداز میں لکھیں تاکہ میں بہتر رہنمائی کر سکوں۔"
+            "\u0645\u06cc\u06ba \u0622\u067e \u06a9\u06cc \u0645\u062f\u062f \u06a9\u06d2 \u0644\u06cc\u06d2 \u0645\u0648\u062c\u0648\u062f \u06c1\u0648\u06ba\u06d4 "
+            "\u0628\u0631\u0627\u06c1\u0650 \u06a9\u0631\u0645 \u0627\u067e\u0646\u0627 \u0637\u0628\u06cc \u0633\u0648\u0627\u0644 \u0648\u0627\u0636\u062d \u0627\u0646\u062f\u0627\u0632 \u0645\u06cc\u06ba \u0644\u06a9\u06be\u06cc\u06ba \u062a\u0627\u06a9\u06c1 \u0645\u06cc\u06ba \u0628\u06c1\u062a\u0631 \u0631\u06c1\u0646\u0645\u0627\u0626\u06cc \u06a9\u0631 \u0633\u06a9\u0648\u06ba\u06d4"
         )
     if expected_language == _LANG_ROMAN_URDU:
         return (
@@ -408,7 +461,6 @@ def _build_language_fallback(expected_language: str) -> str:
         "I am here to help you. "
         "Please share your medical question clearly so I can guide you better."
     )
-
 
 async def _rewrite_reply_for_language(
     ai_reply: str,
@@ -447,9 +499,9 @@ async def _rewrite_reply_for_language(
 def _build_emergency_prefix(expected_language: str) -> str:
     if expected_language == _LANG_URDU_SCRIPT:
         return (
-            "**ہنگامی تنبیہ**\n"
-            "یہ طبی ہنگامی صورتِ حال ہو سکتی ہے۔\n"
-            "براہِ کرم فوراً ایمرجنسی سروسز (911 یا اپنے مقامی ہنگامی نمبر) پر رابطہ کریں۔\n\n"
+            "**\u06c1\u0646\u06af\u0627\u0645\u06cc \u062a\u0646\u0628\u06cc\u06c1**\n"
+            "\u06cc\u06c1 \u0637\u0628\u06cc \u06c1\u0646\u06af\u0627\u0645\u06cc \u0635\u0648\u0631\u062a\u0650 \u062d\u0627\u0644 \u06c1\u0648 \u0633\u06a9\u062a\u06cc \u06c1\u06d2\u06d4\n"
+            "\u0628\u0631\u0627\u06c1\u0650 \u06a9\u0631\u0645 \u0641\u0648\u0631\u0627\u064b \u0627\u06cc\u0645\u0631\u062c\u0646\u0633\u06cc \u0633\u0631\u0648\u0633\u0632 (911 \u06cc\u0627 \u0627\u067e\u0646\u06d2 \u0645\u0642\u0627\u0645\u06cc \u06c1\u0646\u06af\u0627\u0645\u06cc \u0646\u0645\u0628\u0631) \u067e\u0631 \u0631\u0627\u0628\u0637\u06c1 \u06a9\u0631\u06cc\u06ba\u06d4\n\n"
         )
     if expected_language == _LANG_ROMAN_URDU:
         return (
@@ -462,7 +514,6 @@ def _build_emergency_prefix(expected_language: str) -> str:
         "This may be a medical emergency.\n"
         "Please call emergency services (911 or local emergency number) immediately.\n\n"
     )
-
 
 def _seed_history() -> list[dict[str, Any]]:
     return [dict(item) for item in _SYSTEM_MESSAGES]
@@ -619,10 +670,92 @@ def _extract_assistant_text(content: Any) -> str:
     return _clean_text(str(content or ""), max_len=6000)
 
 
-def _resolve_model_for_request(has_images: bool) -> str:
-    if has_images and GROQ_VISION_MODEL:
-        return GROQ_VISION_MODEL
-    return GROQ_MODEL
+def _is_rate_limited_error(exc: Exception) -> bool:
+    if isinstance(exc, httpx.HTTPStatusError):
+        status_code = exc.response.status_code if exc.response is not None else None
+        if status_code == 429:
+            return True
+        response_text = ""
+        if exc.response is not None:
+            try:
+                response_text = exc.response.text or ""
+            except Exception:
+                response_text = ""
+        if "rate limit" in response_text.lower():
+            return True
+    return "rate limit" in str(exc or "").lower()
+
+
+def _build_generation_payload(model: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.45,
+        "max_tokens": 1024,
+    }
+
+
+async def _request_groq_once(payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(GROQ_API_URL, json=payload, headers=headers)
+    response.raise_for_status()
+    return response.json()
+
+
+async def _generate_with_model(
+    model: str,
+    messages: list[dict[str, Any]],
+    headers: dict[str, str],
+) -> str:
+    payload = _build_generation_payload(model, messages)
+    data = await _request_groq_once(payload, headers)
+    return _extract_assistant_text(data["choices"][0]["message"]["content"])
+
+
+async def generate_with_fallback(messages: list[dict[str, Any]]) -> str:
+    if not PRIMARY_MODEL or not SECONDARY_MODEL or not TERTIARY_MODEL:
+        raise HTTPException(
+            status_code=500,
+            detail="Model fallback configuration is incomplete.",
+        )
+
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        try:
+            return await _generate_with_model(PRIMARY_MODEL, messages, headers)
+        except httpx.HTTPStatusError as primary_exc:
+            if not _is_rate_limited_error(primary_exc):
+                raise
+            logger.warning("Primary rate limited. Switching to secondary.")
+            try:
+                return await _generate_with_model(SECONDARY_MODEL, messages, headers)
+            except httpx.HTTPStatusError as secondary_exc:
+                if not _is_rate_limited_error(secondary_exc):
+                    raise
+                logger.warning("Secondary rate limited. Switching to tertiary.")
+                try:
+                    return await _generate_with_model(TERTIARY_MODEL, messages, headers)
+                except httpx.HTTPStatusError as tertiary_exc:
+                    if _is_rate_limited_error(tertiary_exc):
+                        raise HTTPException(
+                            status_code=503,
+                            detail="All models are currently rate limited. Please try again shortly.",
+                        ) from tertiary_exc
+                    raise
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Upstream AI service error. Please try again shortly.",
+        ) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to reach the AI service right now. Please check your connection and try again.",
+        ) from exc
 
 
 async def _request_groq_with_retry(payload: dict, headers: dict[str, str]) -> dict:
@@ -937,6 +1070,11 @@ async def chat_with_groq(
     if not GROQ_API_KEY:
         raise ValueError("GROQ_API_KEY environment variable is not set.")
 
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
     active_session_id, history = await _append_user_message(session_id, storage_user_message)
     request_messages = _build_request_messages(
         history,
@@ -947,81 +1085,7 @@ async def chat_with_groq(
     language_instruction = _build_turn_language_instruction(expected_language)
     request_messages = _inject_turn_system_message(request_messages, language_instruction)
 
-    selected_model = _resolve_model_for_request(bool(image_urls))
-    payload = {
-        "model": selected_model,
-        "messages": request_messages,
-        "temperature": 0.45,
-        "max_tokens": 1024,
-    }
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    try:
-        data = await _request_groq_with_retry(payload, headers)
-    except httpx.HTTPStatusError as exc:
-        status_code = exc.response.status_code if exc.response is not None else 502
-        if image_urls and status_code in {400, 404, 422}:
-            fallback_payload = {
-                "model": GROQ_MODEL,
-                "messages": history,
-                "temperature": 0.45,
-                "max_tokens": 1024,
-            }
-            try:
-                data = await _request_groq_with_retry(fallback_payload, headers)
-            except httpx.HTTPStatusError as fallback_exc:
-                fallback_status = (
-                    fallback_exc.response.status_code if fallback_exc.response is not None else 502
-                )
-                if fallback_status == 429:
-                    retry_after = _parse_retry_after_seconds(
-                        fallback_exc.response.headers if fallback_exc.response else None
-                    )
-                    wait_seconds = max(1, int(round(retry_after))) if retry_after is not None else 6
-                    raise HTTPException(
-                        status_code=429,
-                        detail=(
-                            "Dr. Amna is receiving too many requests right now. "
-                            f"Please retry in about {wait_seconds} seconds."
-                        ),
-                        headers={"Retry-After": str(wait_seconds)},
-                    ) from fallback_exc
-                raise HTTPException(
-                    status_code=502,
-                    detail="Upstream AI service error. Please try again shortly.",
-                ) from fallback_exc
-            except httpx.RequestError as fallback_exc:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Unable to reach the AI service right now. Please check your connection and try again.",
-                ) from fallback_exc
-        else:
-            if status_code == 429:
-                retry_after = _parse_retry_after_seconds(exc.response.headers if exc.response else None)
-                wait_seconds = max(1, int(round(retry_after))) if retry_after is not None else 6
-                raise HTTPException(
-                    status_code=429,
-                    detail=(
-                        "Dr. Amna is receiving too many requests right now. "
-                        f"Please retry in about {wait_seconds} seconds."
-                    ),
-                    headers={"Retry-After": str(wait_seconds)},
-                ) from exc
-
-            raise HTTPException(
-                status_code=502,
-                detail="Upstream AI service error. Please try again shortly.",
-            ) from exc
-    except httpx.RequestError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="Unable to reach the AI service right now. Please check your connection and try again.",
-        ) from exc
-
-    ai_reply = _extract_assistant_text(data["choices"][0]["message"]["content"])
+    ai_reply = await generate_with_fallback(request_messages)
     if not _is_language_compliant(ai_reply, expected_language):
         try:
             ai_reply = await _rewrite_reply_for_language(
