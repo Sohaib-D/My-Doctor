@@ -118,6 +118,7 @@ const PASSWORD_RULE_MESSAGE =
   'Password must be at least 8 characters and include uppercase, lowercase, and a number.';
 const AUTH_GENERIC_ERROR = 'Unable to authenticate right now. Please try again.';
 const AUTH_LAST_EMAIL_KEY = 'pd_last_auth_email';
+const GUEST_DEVICE_ID_KEY = 'pd_guest_device_id';
 const PROFILE_NOT_FOUND_MESSAGE = 'Profile not found.';
 const PERSONALIZATION_NOT_FOUND_MESSAGE = 'Personalization not found.';
 const APP_SETTINGS_KEY = 'pd_app_settings';
@@ -134,7 +135,7 @@ const SETTINGS_TAB_GENERAL = 'general';
 const SETTINGS_TAB_PERSONALIZATION = 'personalization';
 const SETTINGS_TAB_MEDICAL = 'medical';
 const LOGIN_DESKTOP_POPUP_SESSION_KEY = 'pd_login_desktop_popup_dismissed';
-const PULL_REFRESH_TRIGGER_PX = 96;
+const PULL_REFRESH_TRIGGER_PX = 150;
 const MOBILE_DOUBLE_TAP_ZOOM_SCALE = 1.24;
 const DOUBLE_TAP_GESTURE_MS = 320;
 const DOUBLE_TAP_MOVE_TOLERANCE_PX = 24;
@@ -426,6 +427,31 @@ function saveStoredAuthEmail(email) {
   } catch {}
 }
 
+function _createGuestDeviceId() {
+  const prefix = 'guest-';
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `${prefix}${crypto.randomUUID().replace(/-/g, '')}`;
+  }
+  const randomPart = Math.random().toString(36).slice(2, 14);
+  return `${prefix}${Date.now().toString(36)}${randomPart}`;
+}
+
+function readOrCreateGuestDeviceId() {
+  if (typeof window === 'undefined') return '';
+  const isValid = (value) => /^[A-Za-z0-9_-]{8,128}$/.test(String(value || '').trim());
+  try {
+    const existing = String(window.localStorage.getItem(GUEST_DEVICE_ID_KEY) || '').trim();
+    if (isValid(existing)) return existing;
+    const created = _createGuestDeviceId();
+    if (isValid(created)) {
+      window.localStorage.setItem(GUEST_DEVICE_ID_KEY, created);
+      return created;
+    }
+  } catch {}
+  const fallback = _createGuestDeviceId();
+  return isValid(fallback) ? fallback : '';
+}
+
 function createPendingVerificationLogin() {
   return { email: '', password: '', fullName: '', loginToken: '', maskedEmail: '' };
 }
@@ -447,10 +473,13 @@ function stripMarkdownForSpeech(text) {
 }
 
 const ROMAN_URDU_SPEECH_HINTS = new Set([
-  'aap','ap','mujhe','mujhy','mujh','kya','kia','kyun','kyu','hai','hain','ho','hoon',
-  'mera','meri','mere','dard','bukhar','khansi','saans','tabiyat','thakan','kamzori',
-  'dawai','ilaaj','masla','pet','pait','sar','sir','behtar','theek','arqam','agar',
-  'lekin','aur',
+  'aap', 'ap', 'main', 'mein', 'mai', 'mujhe', 'mujhy', 'mujh',
+  'kya', 'kia', 'kyun', 'kyu', 'kaise', 'kese', 'hain', 'hai', 'ho', 'hun', 'hoon',
+  'mera', 'meri', 'mere', 'aapka', 'apka', 'aapki', 'apki', 'aapke', 'apke',
+  'dard', 'bukhar', 'khansi', 'saans', 'tabiyat', 'thakan', 'kamzori',
+  'dawai', 'ilaaj', 'masla', 'pet', 'pait', 'sar', 'sir', 'behtar', 'theek', 'thik',
+  'assalam', 'salam', 'salaam', 'alaikum', 'walikum', 'walaikum', 'asalam',
+  'lekin', 'aur', 'magar', 'haan', 'han', 'nahi', 'nahin', 'naheen',
 ]);
 
 function isLikelyRomanUrduForSpeech(text) {
@@ -485,6 +514,55 @@ function summarizeMessagesForMemory(messages, limit = 8) {
 
 function buildSpokenExplanation(message) {
   return stripMarkdownForSpeech(normalizeMessageText(message));
+}
+
+function normalizeRomanUrduSpeechTextLatin(text) {
+  let normalized = String(text || '');
+  normalized = normalized
+    .replace(/\b(?:as+|a)?s?ala?m(?:\s+o|\s+u)?\s+a?la?ikum\b/gi, 'Assa laam o Alaikum')
+    .replace(/\b(?:wa|w)?a?la?ikum\s+(?:as+)?s?ala?m\b/gi, 'Wa alaikum Assalaam')
+    .replace(/\bin\s*sha\s*allah\b/gi, 'In sha Allah')
+    .replace(/\bkhuda\s+hafiz\b/gi, 'Khuda Hafiz')
+    .replace(/[\/|]/g, ' ')
+    .replace(/[_~*`]/g, ' ')
+    .replace(/\s{2,}/g, ' ');
+  return normalized.replace(/\s+/g, ' ').trim();
+}
+
+function selectEnglishVoiceForRomanUrdu(voices) {
+  const pool = Array.isArray(voices) ? voices : [];
+  if (!pool.length) return null;
+  const femaleHints = ['female', 'woman', 'zira', 'aria', 'sara', 'emma', 'heera', 'nida', 'neural'];
+  const englishVoices = pool.filter((voice) => String(voice?.lang || '').toLowerCase().startsWith('en'));
+  if (!englishVoices.length) return null;
+  const femaleEnglish = englishVoices.find((voice) =>
+    femaleHints.some((hint) => String(voice?.name || '').toLowerCase().includes(hint))
+  );
+  return femaleEnglish || englishVoices[0] || null;
+}
+
+function isUrduFamilyLanguageTag(tag) {
+  const lang = String(tag || '').trim().toLowerCase();
+  if (!lang) return false;
+  return (
+    lang.startsWith('ur') ||
+    lang.startsWith('hi') ||
+    lang.startsWith('pa') ||
+    lang.startsWith('sd')
+  );
+}
+
+function normalizeSpeechNamePronunciation(text, speechVariant) {
+  let value = String(text || '');
+  const variant = String(speechVariant || '').toLowerCase();
+  if (!value) return '';
+  if (!['en', 'roman_urdu'].includes(variant)) return value;
+  const replacement = 'Doctor Aamna';
+  value = value.replace(/\b(?:dr\.?|doctor)\s*\.?\s*a?amna\b/gi, replacement);
+  if (variant === 'roman_urdu') {
+    value = normalizeRomanUrduSpeechTextLatin(value);
+  }
+  return value;
 }
 
 export default function App() {
@@ -625,6 +703,7 @@ export default function App() {
 
   const authenticated = Boolean(token);
   const inGuestMode = guestMode && !authenticated;
+  const guestDeviceId = useMemo(() => readOrCreateGuestDeviceId(), []);
   const isRealMobileUser = isRealMobileDevice();
   const isDesktopLayout = !isMobileLayout && !isTabletLayout;
   const uiLanguage = appSettings.language === 'ur' ? 'ur' : 'en';
@@ -1110,10 +1189,23 @@ export default function App() {
 
   useEffect(() => {
     if (shareRouteId || !('speechSynthesis' in window)) return undefined;
-    const syncVoices = () => setVoices(window.speechSynthesis.getVoices());
+    const synthesis = window.speechSynthesis;
+    const syncVoices = () => setVoices(synthesis.getVoices());
     syncVoices();
-    window.speechSynthesis.addEventListener('voiceschanged', syncVoices);
-    return () => window.speechSynthesis.removeEventListener('voiceschanged', syncVoices);
+    const pollId = window.setInterval(() => {
+      const list = synthesis.getVoices();
+      if (list.length) {
+        setVoices(list);
+        window.clearInterval(pollId);
+      }
+    }, 120);
+    const pollTimeoutId = window.setTimeout(() => window.clearInterval(pollId), 2400);
+    synthesis.addEventListener('voiceschanged', syncVoices);
+    return () => {
+      synthesis.removeEventListener('voiceschanged', syncVoices);
+      window.clearInterval(pollId);
+      window.clearTimeout(pollTimeoutId);
+    };
   }, [shareRouteId]);
 
   useEffect(() => {
@@ -1395,32 +1487,52 @@ export default function App() {
 
   const speakMessage = useCallback((message) => {
     if (!('speechSynthesis' in window)) { setChatError('Text-to-speech is not supported in this browser.'); return; }
-    const speechText = buildSpokenExplanation(message);
-    if (!speechText.trim()) return;
+    const baseSpeechText = buildSpokenExplanation(message);
+    if (!baseSpeechText.trim()) return;
+    const speechVariant = resolveSpeechVariant(baseSpeechText, appSettings.language);
+    const isRomanUrduSpeech = speechVariant === 'roman_urdu';
     const targetMessageId = String(message?.id || '');
     const synthesis = window.speechSynthesis;
+    try { synthesis.getVoices(); } catch {}
     try {
-      if (synthesis.speaking || synthesis.pending || utteranceRef.current) synthesis.cancel();
       if (synthesis.paused) synthesis.resume();
+      if (synthesis.speaking || synthesis.pending || utteranceRef.current) synthesis.cancel();
     } catch {}
     utteranceRef.current = null;
-    setSpeakingMessageId('');
-    const utterance = new SpeechSynthesisUtterance(speechText);
-    const speechVariant = resolveSpeechVariant(speechText, appSettings.language);
-    const configuredLang = appSettings.language === 'ur' ? 'ur-PK' : 'en-US';
-    const lang = appSettings.voice_auto_detect
-      ? speechVariant === 'ur' || speechVariant === 'roman_urdu' ? 'ur-PK' : 'en-US'
-      : configuredLang;
-    utterance.lang = lang; utterance.rate = lang.startsWith('ur') ? 0.9 : 0.95;
-    utterance.pitch = lang.startsWith('ur') ? 1.06 : 1.08; utterance.volume = 1.0;
-    const liveVoices = window.speechSynthesis.getVoices();
-    const selectedVoice = selectFemaleVoice((liveVoices && liveVoices.length) ? liveVoices : voices, lang, speechText);
-    if (selectedVoice) utterance.voice = selectedVoice;
-    utterance.onend = () => { if (utteranceRef.current === utterance) { utteranceRef.current = null; setSpeakingMessageId(''); } };
-    utterance.onerror = () => { if (utteranceRef.current === utterance) { utteranceRef.current = null; setSpeakingMessageId(''); } };
-    utterance.__pdMessageId = targetMessageId;
-    utteranceRef.current = utterance;
     setSpeakingMessageId(targetMessageId);
+    const configuredLang = appSettings.language === 'ur' ? 'ur-PK' : 'en-US';
+    const preferredLang = isRomanUrduSpeech
+      ? 'en-US'
+      : appSettings.voice_auto_detect
+        ? speechVariant === 'ur' ? 'ur-PK' : 'en-US'
+        : configuredLang;
+    const liveVoices = synthesis.getVoices();
+    const voicePool = (liveVoices && liveVoices.length) ? liveVoices : voices;
+    const selectedVoice = isRomanUrduSpeech
+      ? selectEnglishVoiceForRomanUrdu(voicePool)
+      : selectFemaleVoice(voicePool, preferredLang, baseSpeechText);
+    const selectedVoiceLang = String(selectedVoice?.lang || '').trim();
+    const speechText = normalizeSpeechNamePronunciation(baseSpeechText, speechVariant);
+    if (!speechText.trim()) {
+      utteranceRef.current = null;
+      setSpeakingMessageId('');
+      return;
+    }
+    const lang = isRomanUrduSpeech ? 'en-US' : (selectedVoiceLang || preferredLang);
+    const isUrduFamily = !isRomanUrduSpeech && (isUrduFamilyLanguageTag(lang) || speechVariant === 'ur');
+    const utterance = new SpeechSynthesisUtterance(speechText);
+    utterance.lang = lang;
+    utterance.rate = isRomanUrduSpeech ? 0.9 : (isUrduFamily ? 0.9 : 0.95);
+    utterance.pitch = isRomanUrduSpeech ? 1.0 : (isUrduFamily ? 1.0 : 1.05);
+    utterance.volume = 1.0;
+    if (selectedVoice) utterance.voice = selectedVoice;
+    utterance.__pdMessageId = targetMessageId;
+    utterance.onend = () => {
+      if (utteranceRef.current !== utterance) return;
+      utteranceRef.current = null;
+      setSpeakingMessageId('');
+    };
+    utteranceRef.current = utterance;
     synthesis.speak(utterance);
   }, [appSettings.language, appSettings.voice_auto_detect, voices]);
 
@@ -1471,28 +1583,40 @@ export default function App() {
     startDictation();
   }, [startDictation, stopDictation]);
 
-  const handleEmailSignup = useCallback(async ({ email, password, confirmPassword, fullName, otp }) => {
+  const handleRequestSignupOtp = useCallback(async ({ email, password, confirmPassword, fullName }) => {
     setGuestMode(false); setAuthBusy(true); setAuthError(''); setAuthInfo('');
     const normalizedEmail = (email || '').trim().toLowerCase();
     const normalizedFullName = (fullName || '').trim();
-    const normalizedOtp = String(otp || '').trim();
     try {
       if (!EMAIL_PATTERN.test(normalizedEmail)) throw new Error('Please enter a valid email address.');
       if (password !== confirmPassword) throw new Error('Passwords do not match.');
-      if (!PASSWORD_PATTERN.test(password)) throw new Error(PASSWORD_RULE_MESSAGE);
-      if (normalizedOtp) {
-        const pendingEmail = (pendingVerificationLogin.email || '').trim().toLowerCase();
-        const pendingLoginToken = (pendingVerificationLogin.loginToken || '').trim();
-        if (!pendingLoginToken || pendingEmail !== normalizedEmail) throw new Error('Please request an OTP first, then enter it here to verify.');
-        await completeOtpVerification({ email: normalizedEmail, loginToken: pendingLoginToken, otp: normalizedOtp });
-        return;
-      }
+      if (!PASSWORD_PATTERN.test(password || '')) throw new Error(PASSWORD_RULE_MESSAGE);
       const payload = await api.signupWithEmail({ email: normalizedEmail, password, full_name: normalizedFullName || undefined });
       const maskedEmail = payload?.masked_email || normalizedEmail;
       setPendingVerificationLogin({ email: normalizedEmail, password, fullName: normalizedFullName, loginToken: payload?.login_token || '', maskedEmail });
       saveStoredAuthEmail(normalizedEmail); setAuthLastEmail(normalizedEmail);
       setShowResendVerification(true);
-      setAuthInfo('OTP sent successfully - check your spam folder.');
+      setAuthInfo('OTP sent successfuly!\nCheck your spam folder!');
+      return true;
+    } catch (error) {
+      setAuthError(toAuthMessage(error));
+      return false;
+    } finally { setAuthBusy(false); }
+  }, []);
+
+  const handleEmailSignup = useCallback(async ({ email, password, confirmPassword, fullName, otp }) => {
+    setGuestMode(false); setAuthBusy(true); setAuthError(''); setAuthInfo('');
+    const normalizedEmail = (email || '').trim().toLowerCase();
+    const normalizedOtp = String(otp || '').trim();
+    try {
+      if (!EMAIL_PATTERN.test(normalizedEmail)) throw new Error('Please enter a valid email address.');
+      if (password !== confirmPassword) throw new Error('Passwords do not match.');
+      if (!PASSWORD_PATTERN.test(password)) throw new Error(PASSWORD_RULE_MESSAGE);
+      if (!normalizedOtp) throw new Error('Please request OTP first, then enter OTP to create your account.');
+      const pendingEmail = (pendingVerificationLogin.email || '').trim().toLowerCase();
+      const pendingLoginToken = (pendingVerificationLogin.loginToken || '').trim();
+      if (!pendingLoginToken || pendingEmail !== normalizedEmail) throw new Error('Please request OTP first, then enter OTP to create your account.');
+      await completeOtpVerification({ email: normalizedEmail, loginToken: pendingLoginToken, otp: normalizedOtp });
     } catch (error) {
       if (normalizedOtp) setShowResendVerification(true);
       setAuthError(toAuthMessage(error));
@@ -2082,7 +2206,16 @@ export default function App() {
         try { const loadedProfile = await loadMedicalProfile(token); if (loadedProfile) profilePayload = { age: loadedProfile.age, gender: loadedProfile.gender, medical_history: loadedProfile.medical_history, allergies: loadedProfile.allergies, medications: loadedProfile.medications, chronic_conditions: loadedProfile.chronic_conditions }; }
         catch (profileError) { if (!isProfileNotFoundError(profileError)) throw profileError; }
       }
-      const result = await api.chat({ message: text, session_id: activeSessionId || undefined, language, mode: normalizeChatMode(activeMode), attachments: requestAttachments, profile: profilePayload, personalization: personalizationPayload }, token);
+      const result = await api.chat({
+        message: text,
+        session_id: activeSessionId || undefined,
+        guest_device_id: inGuestMode ? guestDeviceId : undefined,
+        language,
+        mode: normalizeChatMode(activeMode),
+        attachments: requestAttachments,
+        profile: profilePayload,
+        personalization: personalizationPayload,
+      }, token);
       if (requestSequence !== sendSequenceRef.current || requestConversationVersion !== conversationResetRef.current) return;
       const currentId = result.session_id;
       if (inGuestMode) {
@@ -2099,7 +2232,7 @@ export default function App() {
       setMessages((prev) => prev.map((message) => (message.id === temporaryId ? { ...message, failed: true } : message)));
       setChatError(error.message);
     } finally { if (requestSequence === sendSequenceRef.current) setSending(false); }
-  }, [activeMode, activeSessionId, attachedImages, chatLanguage, draft, inGuestMode, loadHistory, loadMedicalProfile, effectivePersonalization, refreshSessions, sending, scrollChatToBottom, sortedMessages, token]);
+  }, [activeMode, activeSessionId, attachedImages, chatLanguage, draft, guestDeviceId, inGuestMode, loadHistory, loadMedicalProfile, effectivePersonalization, refreshSessions, sending, scrollChatToBottom, sortedMessages, token]);
 
   const copyShareLink = useCallback(async () => {
     if (inGuestMode) { setShareError('Sign in to create shareable links.'); return; }
@@ -2146,6 +2279,7 @@ export default function App() {
           mode={authMode} busy={authBusy} error={authError} info={authInfo} initialEmail={authLastEmail}
           showResendVerification={showResendVerification} resendBusy={resendBusy}
           onModeChange={handleAuthModeChange} onEmailLogin={handleEmailLogin} onEmailSignup={handleEmailSignup}
+          onRequestSignupOtp={handleRequestSignupOtp}
           onRequestPasswordReset={handleRequestPasswordReset} onResetPassword={handleResetPassword}
           onGoogleLogin={handleGoogleLogin} onResendVerification={handleResendVerification}
           onContinueAsGuest={handleContinueAsGuest}
@@ -2638,7 +2772,9 @@ export default function App() {
                         <p className="mt-2 rounded-md bg-red-500/20 px-2 py-1 text-xs text-red-200">{ui.failedToSend}</p>
                       )}
                     </div>
-                    <div className="mt-1 inline-flex self-end items-center gap-1 text-[11px] text-slate-400">
+                    <div className={`mt-1 inline-flex items-center gap-1 text-[11px] text-slate-400 ${
+                      message.role === 'assistant' ? 'self-start' : 'self-end'
+                    }`}>
                       <button type="button" onClick={() => copyMessageText(message)}
                         className="rounded-md p-1 transition hover:bg-white/10 hover:text-white"
                         aria-label="Copy" title="Copy"
@@ -2655,7 +2791,7 @@ export default function App() {
                           aria-label={speakingMessageId === message.id ? 'Stop speaking' : 'Speak'}
                         >{speakingMessageId === message.id ? <VolumeX size={13} /> : <Volume2 size={13} />}</button>
                       )}
-                      <span className="ml-1">{formatTime(message.created_at)}</span>
+                      <span className={message.role === 'assistant' ? '' : 'ml-1'}>{formatTime(message.created_at)}</span>
                     </div>
                   </div>
                 );

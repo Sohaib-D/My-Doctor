@@ -37,6 +37,7 @@ export default function AuthCard({
   onModeChange,
   onEmailLogin,
   onEmailSignup,
+  onRequestSignupOtp,
   onRequestPasswordReset,
   onResetPassword,
   onGoogleLogin,
@@ -49,6 +50,7 @@ export default function AuthCard({
   const [fullName, setFullName] = useState('');
   const [otp, setOtp] = useState('');
   const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [showSpamGuide, setShowSpamGuide] = useState(false);
   const [forgotOtpRequested, setForgotOtpRequested] = useState(false);
   const [resetOtp, setResetOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -64,11 +66,52 @@ export default function AuthCard({
     setFullName('');
     setOtp('');
     setShowForgotPassword(false);
+    setShowSpamGuide(false);
     setForgotOtpRequested(false);
     setResetOtp('');
     setNewPassword('');
     setConfirmNewPassword('');
-  }, [mode, initialEmail]);
+  }, [mode]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const root = document.documentElement;
+    root.classList.add('auth-flow');
+    return () => {
+      root.classList.remove('auth-flow');
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return undefined;
+    const root = document.documentElement;
+    if (root.classList.contains('real-mobile-device')) return undefined;
+
+    const onWheel = (event) => {
+      if (event.defaultPrevented || !event.cancelable || event.ctrlKey || event.metaKey) {
+        return;
+      }
+      const scrollRoot = document.scrollingElement || document.documentElement;
+      if (!scrollRoot) {
+        return;
+      }
+      const maxScrollTop = Math.max(0, scrollRoot.scrollHeight - scrollRoot.clientHeight);
+      if (maxScrollTop <= 0) {
+        return;
+      }
+      const nextTop = Math.max(0, Math.min(maxScrollTop, scrollRoot.scrollTop + event.deltaY));
+      if (nextTop === scrollRoot.scrollTop) {
+        return;
+      }
+      scrollRoot.scrollTop = nextTop;
+      event.preventDefault();
+    };
+
+    window.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      window.removeEventListener('wheel', onWheel);
+    };
+  }, []);
 
   const emailStateClass =
     isRegister && trimmedEmail
@@ -113,6 +156,15 @@ export default function AuthCard({
     }
   };
 
+  const handleSignupOtpRequest = async () => {
+    await onRequestSignupOtp?.({
+      email,
+      password,
+      confirmPassword,
+      fullName,
+    });
+  };
+
   const handleResetPassword = async (event) => {
     event.preventDefault();
     const ok = await onResetPassword?.({
@@ -131,9 +183,9 @@ export default function AuthCard({
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center px-4 py-10">
+    <div className="auth-page-shell relative flex min-h-screen items-center justify-center px-4 py-10">
       <MedicalBackground opacity={0.25} />
-      <div className="relative z-10 w-full max-w-md rounded-2xl border border-white/10 bg-slate-900/90 p-7 shadow-chat backdrop-blur-xl">
+      <div className="auth-card-panel relative z-10 w-full max-w-md rounded-2xl border border-white/10 bg-slate-900/90 p-7 shadow-chat backdrop-blur-xl">
         <div className="mb-6 flex items-center gap-3">
           <div className="pd-stethoscope-emerald rounded-lg bg-emerald-500/20 p-2 text-emerald-300">
             <Stethoscope size={18} />
@@ -221,11 +273,47 @@ export default function AuthCard({
 
           {isRegister && !showForgotPassword && <PasswordStrengthIndicator password={password} />}
 
+          {!showForgotPassword && (
+            <div className="rounded-xl border border-cyan-400/25 bg-cyan-500/10 px-3 py-2 text-xs leading-5 text-cyan-100">
+              <p>
+                All OTPs and Messages will be in spam folder, so always check your spam folder for OTPs.
+                {' '}
+                <button
+                  type="button"
+                  onClick={() => setShowSpamGuide((prev) => !prev)}
+                  className="inline text-cyan-200 underline decoration-cyan-400/70 underline-offset-2 hover:text-cyan-100"
+                >
+                  Where to find spam folder?
+                </button>
+              </p>
+              {showSpamGuide && (
+                <div className="mt-2 space-y-2 rounded-lg border border-cyan-300/25 bg-slate-950/50 px-2.5 py-2 text-[11px] text-slate-200">
+                  <p className="font-semibold text-cyan-100">Gmail - simple steps</p>
+                  <p><strong>On phone (Gmail app):</strong> Open Gmail, tap 3 lines (top-left), scroll down, then tap <strong>Spam</strong>.</p>
+                  <p><strong>On laptop/browser:</strong> Open gmail.com, in the left menu click <strong>More</strong>, then click <strong>Spam</strong>.</p>
+                  <p>If you find the OTP email in Spam, open it and tap <strong>Not spam</strong> so next emails come to Inbox.</p>
+                </div>
+              )}
+            </div>
+          )}
+
           {error && <p className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">{error}</p>}
           {info && (
             <p className="whitespace-pre-line rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
               {info}
             </p>
+          )}
+
+          {isRegister && !showForgotPassword && (
+            <button
+              type="button"
+              onClick={handleSignupOtpRequest}
+              disabled={busy || resendBusy || !trimmedEmail}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-400/40 bg-cyan-500/10 px-4 py-2.5 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-500/20 disabled:opacity-60"
+            >
+              {(busy || resendBusy) && <Loader2 size={16} className="animate-spin" />}
+              {showResendVerification ? 'Resend OTP' : 'Request OTP'}
+            </button>
           )}
 
           {isRegister && !showForgotPassword && (
@@ -246,22 +334,10 @@ export default function AuthCard({
             </div>
           )}
 
-          {showResendVerification && isRegister && !showForgotPassword && (
-            <button
-              type="button"
-              onClick={onResendVerification}
-              disabled={busy || resendBusy}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-400/40 bg-cyan-500/10 px-4 py-2.5 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-500/20 disabled:opacity-60"
-            >
-              {(busy || resendBusy) && <Loader2 size={16} className="animate-spin" />}
-              Resend OTP
-            </button>
-          )}
-
           {!showForgotPassword && (
             <button
               type="submit"
-              disabled={busy || resendBusy}
+              disabled={busy || resendBusy || (isRegister && !otp.trim())}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 disabled:opacity-60"
             >
               {busy && <Loader2 size={16} className="animate-spin" />}

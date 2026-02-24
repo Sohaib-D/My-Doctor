@@ -16,6 +16,7 @@ class ChatAttachment(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     session_id: str | None = None
+    guest_device_id: str | None = None
     attachments: list[ChatAttachment] = Field(default_factory=list)
 
 

@@ -558,6 +558,45 @@ html.real-mobile-device.mobile-doubletap-zoom #root {
   outline-offset: 2px;
 }
 
+/* Desktop auth pages: clear, flexible, and scrollable.
+   Excludes real mobile devices (normal mobile view + desktop-site mode). */
+html:not(.real-mobile-device).auth-flow,
+html:not(.real-mobile-device).auth-flow body {
+  height: auto;
+  min-height: 100dvh;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior-y: auto;
+}
+
+html:not(.real-mobile-device).auth-flow #root {
+  height: auto;
+  min-height: 100dvh;
+  overflow: visible !important;
+}
+
+html:not(.real-mobile-device).auth-flow .auth-page-shell {
+  height: auto;
+  min-height: 100dvh;
+  overflow: visible;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 2.5rem;
+  padding-bottom: 2.5rem;
+}
+
+html:not(.real-mobile-device).auth-flow .auth-card-panel {
+  flex: 0 0 auto;
+}
+
+html:not(.real-mobile-device).auth-flow .auth-page-shell > .medical-background {
+  position: absolute !important;
+  inset: 0 !important;
+  min-height: 100%;
+  height: 100%;
+  z-index: 0;
+}
+
 /* Composer should stay clean on focus in both mobile and desktop */
 .composer-shell textarea:focus,
 .composer-shell textarea:focus-visible {

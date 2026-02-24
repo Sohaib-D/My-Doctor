@@ -17,7 +17,11 @@ from sqlalchemy.orm import Session
 from backend.config import get_settings
 from backend.database.models import ChatMessage, Feedback, User
 from backend.database.session import get_db
-from backend.services.groq_service import get_session_history, list_session_summaries
+from backend.services.groq_service import (
+    get_guest_session_device_map,
+    get_session_history,
+    list_session_summaries,
+)
 
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -367,47 +371,72 @@ def _load_persisted_session_ids(db: Session) -> set[str]:
     return session_ids
 
 
-def _guest_runtime_session_counts(db: Session) -> dict[str, int]:
+def _guest_runtime_session_metrics(db: Session) -> dict[str, dict[str, str | int]]:
     persisted_session_ids = _load_persisted_session_ids(db)
     try:
         runtime_summaries = asyncio.run(list_session_summaries())
+        runtime_device_map = asyncio.run(get_guest_session_device_map())
     except Exception:
         return {}
 
-    session_counts: dict[str, int] = {}
+    metrics: dict[str, dict[str, str | int]] = {}
     for item in runtime_summaries:
         session_id = str((item or {}).get("id") or "").strip()
-        message_count = int((item or {}).get("message_count") or 0)
-        if not session_id or message_count <= 0:
+        if not session_id or session_id in persisted_session_ids:
             continue
-        if session_id in persisted_session_ids:
-            continue
-        session_counts[session_id] = message_count
-    return session_counts
 
-
-def _guest_runtime_attachment_counts(runtime_guest_sessions: dict[str, int]) -> dict[str, int]:
-    attachment_counts: dict[str, int] = {}
-    for session_id in runtime_guest_sessions:
-        total = 0
         try:
-            messages = asyncio.run(get_session_history(session_id))
+            history_messages = asyncio.run(get_session_history(session_id))
         except Exception:
-            attachment_counts[session_id] = 0
-            continue
+            history_messages = []
 
-        for item in messages:
-            if str((item or {}).get("role") or "").strip().lower() != "user":
-                continue
-            total += _extract_attachment_count((item or {}).get("text"))
-        attachment_counts[session_id] = total
-    return attachment_counts
+        user_messages = [
+            row
+            for row in history_messages
+            if str((row or {}).get("role") or "").strip().lower() == "user"
+            and str((row or {}).get("text") or "").strip()
+        ]
+        message_count = len(user_messages)
+        attachment_count = sum(_extract_attachment_count((row or {}).get("text")) for row in user_messages)
+        if message_count <= 0 and attachment_count <= 0:
+            continue
+        guest_device_id = str(runtime_device_map.get(session_id) or "").strip()
+        metrics[session_id] = {
+            "message_count": int(message_count),
+            "attachment_count": int(attachment_count),
+            "guest_device_id": guest_device_id,
+        }
+    return metrics
+
+
+def _guest_runtime_session_counts(runtime_guest_metrics: dict[str, dict[str, str | int]]) -> dict[str, int]:
+    return {
+        session_id: int((meta or {}).get("message_count") or 0)
+        for session_id, meta in runtime_guest_metrics.items()
+    }
+
+
+def _guest_runtime_attachment_counts(runtime_guest_metrics: dict[str, dict[str, str | int]]) -> dict[str, int]:
+    return {
+        session_id: int((meta or {}).get("attachment_count") or 0)
+        for session_id, meta in runtime_guest_metrics.items()
+    }
+
+
+def _guest_runtime_session_device_ids(
+    runtime_guest_metrics: dict[str, dict[str, str | int]]
+) -> dict[str, str]:
+    return {
+        session_id: str((meta or {}).get("guest_device_id") or "").strip()
+        for session_id, meta in runtime_guest_metrics.items()
+    }
 
 
 def _count_guest_users(
     db: Session,
     verified_emails: set[str],
     runtime_guest_sessions: dict[str, int] | None = None,
+    runtime_guest_session_device_ids: dict[str, str] | None = None,
 ) -> int:
     guest_identities: set[str] = set()
 
@@ -451,8 +480,20 @@ def _count_guest_users(
     except SQLAlchemyError:
         pass
 
-    session_counts = runtime_guest_sessions if runtime_guest_sessions is not None else _guest_runtime_session_counts(db)
-    guest_identities.update(f"runtime_session:{session_id}" for session_id in session_counts)
+    if runtime_guest_sessions is None:
+        runtime_guest_metrics = _guest_runtime_session_metrics(db)
+        session_counts = _guest_runtime_session_counts(runtime_guest_metrics)
+        session_device_ids = _guest_runtime_session_device_ids(runtime_guest_metrics)
+    else:
+        session_counts = runtime_guest_sessions
+        session_device_ids = (
+            runtime_guest_session_device_ids
+            if runtime_guest_session_device_ids is not None
+            else {}
+        )
+    for session_id in session_counts:
+        device_id = str(session_device_ids.get(session_id) or "").strip() or f"session:{session_id}"
+        guest_identities.add(f"runtime_device:{device_id}")
 
     return len(guest_identities)
 
@@ -794,11 +835,18 @@ def admin_dashboard(
             select(func.lower(User.email)).where(User.is_verified.is_(True))
         ).all()
         verified_emails = {str(row[0] or "").strip().lower() for row in verified_email_rows if row and row[0]}
-        runtime_guest_sessions = _guest_runtime_session_counts(db)
-        runtime_guest_attachment_counts = _guest_runtime_attachment_counts(runtime_guest_sessions)
+        runtime_guest_metrics = _guest_runtime_session_metrics(db)
+        runtime_guest_sessions = _guest_runtime_session_counts(runtime_guest_metrics)
+        runtime_guest_attachment_counts = _guest_runtime_attachment_counts(runtime_guest_metrics)
+        runtime_guest_session_device_ids = _guest_runtime_session_device_ids(runtime_guest_metrics)
 
         total_registered_users = _count_registered_users(db)
-        total_guest_users = _count_guest_users(db, verified_emails, runtime_guest_sessions)
+        total_guest_users = _count_guest_users(
+            db,
+            verified_emails,
+            runtime_guest_sessions,
+            runtime_guest_session_device_ids,
+        )
 
         search = (q or "").strip()
         users_stmt = select(User).order_by(User.id.desc())
@@ -814,18 +862,61 @@ def admin_dashboard(
 
         guest_session_rows: list[dict[str, str | int]] = []
         if normalized_user_filter in {"all", "guest"}:
+            guest_device_totals: dict[str, dict[str, int | str]] = {}
+            for session_id, message_count in runtime_guest_sessions.items():
+                device_id = str(runtime_guest_session_device_ids.get(session_id) or "").strip()
+                device_key = device_id or f"session-{session_id}"
+                bucket = guest_device_totals.setdefault(
+                    device_key,
+                    {
+                        "device_id": device_id,
+                        "session_count": 0,
+                        "message_count": 0,
+                        "attachment_count": 0,
+                    },
+                )
+                bucket["session_count"] = int(bucket.get("session_count", 0)) + 1
+                bucket["message_count"] = int(bucket.get("message_count", 0)) + int(message_count)
+                bucket["attachment_count"] = (
+                    int(bucket.get("attachment_count", 0))
+                    + int(runtime_guest_attachment_counts.get(session_id, 0))
+                )
+
             search_lower = search.lower()
-            for idx, (session_id, message_count) in enumerate(runtime_guest_sessions.items(), start=1):
-                session_label = f"Guest User (session {session_id[:8]})"
-                if search and search_lower not in session_label.lower() and search_lower not in session_id.lower():
+            ordered_guest_devices = sorted(
+                guest_device_totals.values(),
+                key=lambda item: (
+                    -int(item.get("message_count", 0)),
+                    -int(item.get("attachment_count", 0)),
+                ),
+            )
+            for idx, summary in enumerate(ordered_guest_devices, start=1):
+                device_id = str(summary.get("device_id") or "").strip()
+                session_count = int(summary.get("session_count", 0))
+                message_count = int(summary.get("message_count", 0))
+                attachment_count = int(summary.get("attachment_count", 0))
+                session_suffix = "session" if session_count == 1 else "sessions"
+                if device_id:
+                    session_label = (
+                        f"Guest User (device {device_id[:8]}, "
+                        f"{session_count} {session_suffix})"
+                    )
+                else:
+                    session_label = (
+                        f"Guest User (unidentified device, "
+                        f"{session_count} {session_suffix})"
+                    )
+
+                searchable_device = device_id.lower() if device_id else ""
+                if search and search_lower not in session_label.lower() and search_lower not in searchable_device:
                     continue
                 guest_session_rows.append(
                     {
-                        "id": f"G-{idx}",
+                        "id": f"GD-{idx}",
                         "email": session_label,
                         "verified": "No",
-                        "message_count": int(message_count),
-                        "attachment_count": int(runtime_guest_attachment_counts.get(session_id, 0)),
+                        "message_count": message_count,
+                        "attachment_count": attachment_count,
                     }
                 )
 

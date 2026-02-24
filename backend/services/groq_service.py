@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """
 You are a clinically trained medical assistant (Female Doctor) named "Dr. Amna".
+When writing in Urdu script, write your name as "ڈاکٹر آمنہ".
 Provide structured, evidence-based advice in response to patient questions.
 
 YOUR PERSONALITY:
@@ -130,6 +131,7 @@ _SESSION_TOUCHED_AT: dict[str, float] = {}
 _SESSION_CREATED_AT: dict[str, float] = {}
 _SESSION_FLAGS: dict[str, dict[str, Any]] = {}
 _SESSION_NON_MEDICAL_STREAK: dict[str, int] = {}
+_SESSION_GUEST_DEVICE: dict[str, str] = {}
 _SHARED_SESSION_MAP: dict[str, str] = {}
 _HISTORY_LOCK = Lock()
 
@@ -149,6 +151,8 @@ _URDU_MARKDOWN_DECORATION_RE = re.compile(r"[`*_#]+")
 _URDU_BRACKETS_RE = re.compile(r"[()\[\]{}]")
 _URDU_MULTISPACE_RE = re.compile(r"[ \t]{2,}")
 _URDU_EXCESS_NEWLINES_RE = re.compile(r"\n{3,}")
+_DR_AMNA_NAME_RE = re.compile(r"\b(?:dr\.?|doctor)\s*\.?\s*a?amna\b", re.IGNORECASE)
+_GUEST_DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 _URDU_ASCII_PUNCT_TRANSLATION = str.maketrans(
     {
         "?": "\u061f",
@@ -621,7 +625,8 @@ def _build_turn_language_instruction(expected_language: str) -> str:
         return (
             "Reply only in Urdu script. Use pure Urdu vocabulary with proper Urdu punctuation (\u06d4 \u060c \u061f). "
             "Do not use English, Roman Urdu, Devanagari, or mixed scripts. "
-            "When referring to yourself, use feminine wording."
+            "When referring to yourself, use feminine wording. "
+            'Write your name as "ڈاکٹر آمنہ".'
         )
     if expected_language == _LANG_ROMAN_URDU:
         return (
@@ -661,7 +666,8 @@ def _normalize_urdu_script_reply(text: str) -> str:
 def _normalize_reply_for_expected_language(text: str, expected_language: str) -> str:
     value = str(text or "").strip()
     if expected_language == _LANG_URDU_SCRIPT:
-        return _normalize_urdu_script_reply(value)
+        normalized = _normalize_urdu_script_reply(value)
+        return _DR_AMNA_NAME_RE.sub("ڈاکٹر آمنہ", normalized)
     return value
 
 
@@ -723,7 +729,8 @@ def _build_language_rewrite_instruction(expected_language: str) -> str:
             "Keep the same medical meaning, structure, and safety notes. "
             "Use pure Urdu vocabulary and proper Urdu punctuation (\u06d4 \u060c \u061f). "
             "Do not use English, Roman Urdu, Devanagari, or mixed scripts. "
-            "Use feminine wording for self-reference."
+            "Use feminine wording for self-reference. "
+            'Write the name as "ڈاکٹر آمنہ".'
         )
     if expected_language == _LANG_ROMAN_URDU:
         return (
@@ -817,9 +824,19 @@ def _prune_expired_sessions(now: float) -> None:
         _SESSION_HISTORIES.pop(session_id, None)
         _SESSION_CREATED_AT.pop(session_id, None)
         _SESSION_FLAGS.pop(session_id, None)
+        _SESSION_GUEST_DEVICE.pop(session_id, None)
         stale_shares = [share_id for share_id, value in _SHARED_SESSION_MAP.items() if value == session_id]
         for share_id in stale_shares:
             _SHARED_SESSION_MAP.pop(share_id, None)
+
+
+def _normalize_guest_device_id(value: str | None) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    if not _GUEST_DEVICE_ID_RE.fullmatch(normalized):
+        return ""
+    return normalized
 
 
 def _get_session_flags(session_id: str) -> dict[str, Any]:
@@ -1141,6 +1158,36 @@ async def get_session_history(session_id: str) -> list[dict[str, Any]]:
         return _history_to_ui_messages(normalized_session_id, history)
 
 
+async def bind_guest_device_to_session(session_id: str, guest_device_id: str | None) -> str | None:
+    normalized_session_id = str(session_id or "").strip()
+    normalized_guest_device_id = _normalize_guest_device_id(guest_device_id)
+    if not normalized_session_id or not normalized_guest_device_id:
+        return None
+    async with _HISTORY_LOCK:
+        now = time.time()
+        _prune_expired_sessions(now)
+        if normalized_session_id not in _SESSION_HISTORIES:
+            return None
+        _SESSION_GUEST_DEVICE[normalized_session_id] = normalized_guest_device_id
+        _SESSION_TOUCHED_AT[normalized_session_id] = now
+        return normalized_guest_device_id
+
+
+async def get_guest_session_device_map() -> dict[str, str]:
+    async with _HISTORY_LOCK:
+        now = time.time()
+        _prune_expired_sessions(now)
+        mapping: dict[str, str] = {}
+        for session_id, guest_device_id in _SESSION_GUEST_DEVICE.items():
+            if session_id not in _SESSION_HISTORIES:
+                continue
+            normalized_guest_device_id = _normalize_guest_device_id(guest_device_id)
+            if not normalized_guest_device_id:
+                continue
+            mapping[session_id] = normalized_guest_device_id
+        return mapping
+
+
 async def pin_session(session_id: str, is_pinned: bool) -> bool:
     normalized_session_id = str(session_id or "").strip()
     if not normalized_session_id:
@@ -1190,6 +1237,7 @@ async def delete_session(session_id: str) -> bool:
         _SESSION_TOUCHED_AT.pop(normalized_session_id, None)
         _SESSION_CREATED_AT.pop(normalized_session_id, None)
         _SESSION_FLAGS.pop(normalized_session_id, None)
+        _SESSION_GUEST_DEVICE.pop(normalized_session_id, None)
         stale_shares = [share_id for share_id, value in _SHARED_SESSION_MAP.items() if value == normalized_session_id]
         for share_id in stale_shares:
             _SHARED_SESSION_MAP.pop(share_id, None)

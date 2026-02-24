@@ -26,6 +26,7 @@ from backend.schemas.chat import (
 )
 from backend.services.groq_service import (
     archive_session,
+    bind_guest_device_to_session,
     chat_with_groq,
     create_share_link,
     delete_session,
@@ -213,6 +214,11 @@ async def chat(
             session_id=payload.session_id,
             attachments=attachments,
         )
+        if not current_user and response.session_id:
+            try:
+                await bind_guest_device_to_session(response.session_id, payload.guest_device_id)
+            except Exception:
+                logger.exception("Failed binding guest device id to runtime session.")
         if current_user and response.session_id:
             stored_user_text = _build_user_turn_text(message, len(attachments))
             try:
