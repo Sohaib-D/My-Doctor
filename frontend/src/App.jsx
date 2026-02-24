@@ -21,7 +21,6 @@ import {
   Pill,
   Pin,
   Plus,
-  RefreshCw,
   Search,
   SendHorizontal,
   Settings,
@@ -81,6 +80,13 @@ const SIDEBAR_RESIZE_MIN = 200;
 const SIDEBAR_RESIZE_MAX = 400;
 const MOBILE_MAX_WIDTH = 767;
 const TABLET_MAX_WIDTH = 1199;
+
+// Detects real mobile hardware (Android + iPhone/iPad) regardless of viewport width.
+// This ensures "Request Desktop Site" still gets mobile-friendly sidebar behavior.
+const isRealMobileDevice = () => {
+  if (typeof navigator === 'undefined') return false;
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+};
 const SILENCE_TIMEOUT_MS = 2000;
 const MAX_IMAGE_ATTACHMENTS = 10;
 const MAX_IMAGE_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024;
@@ -494,7 +500,11 @@ export default function App() {
       : false
   );
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
-    if (typeof window !== 'undefined' && window.matchMedia(`(max-width: ${MOBILE_MAX_WIDTH}px)`).matches) return false;
+    if (typeof window === 'undefined') return true;
+    // Always collapse on real mobile viewports
+    if (window.matchMedia(`(max-width: ${MOBILE_MAX_WIDTH}px)`).matches) return false;
+    // Also collapse when a real mobile device requests desktop site (wide viewport but mobile hardware)
+    if (isRealMobileDevice()) return false;
     return true;
   });
   const [sidebarWidth, setSidebarWidth] = useState(() =>
@@ -527,9 +537,6 @@ export default function App() {
   const [cameraCaptureOpen, setCameraCaptureOpen] = useState(false);
   const [cameraCaptureBusy, setCameraCaptureBusy] = useState(false);
   const [cameraCaptureError, setCameraCaptureError] = useState('');
-  const [cameraFacingMode, setCameraFacingMode] = useState('environment');
-  const [cameraCanSwitch, setCameraCanSwitch] = useState(false);
-  const [cameraSwitchBusy, setCameraSwitchBusy] = useState(false);
   const [dictationSupported, setDictationSupported] = useState(false);
   const [dictationState, setDictationState] = useState('idle');
   const [voices, setVoices] = useState([]);
@@ -537,6 +544,8 @@ export default function App() {
   const [autoVoice, setAutoVoice] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareError, setShareError] = useState('');
+  const [mobileDesktopHintAuthOpen, setMobileDesktopHintAuthOpen] = useState(false);
+  const [mobileDesktopHintAppOpen, setMobileDesktopHintAppOpen] = useState(false);
   const [helpModalOpen, setHelpModalOpen] = useState(false);
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
   const [reviewText, setReviewText] = useState('');
@@ -799,85 +808,34 @@ export default function App() {
     if (cameraVideoRef.current) cameraVideoRef.current.srcObject = null;
   }, []);
 
-  const startCameraCaptureStream = useCallback(async (preferredFacingMode = 'environment') => {
-    const normalizedFacingMode = preferredFacingMode === 'user' ? 'user' : 'environment';
-    const alternateFacingMode = normalizedFacingMode === 'environment' ? 'user' : 'environment';
-    stopCameraCaptureStream();
-
-    const attempts = [
-      { video: { facingMode: { exact: normalizedFacingMode } }, audio: false },
-      { video: { facingMode: { ideal: normalizedFacingMode } }, audio: false },
-      { video: { facingMode: { exact: alternateFacingMode } }, audio: false },
-      { video: { facingMode: { ideal: alternateFacingMode } }, audio: false },
-      { video: true, audio: false },
-    ];
-    let stream = null;
-    let lastError = null;
-    for (const constraints of attempts) {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-        break;
-      } catch (error) {
-        lastError = error;
-      }
-    }
-    if (!stream) throw lastError || new Error('camera-open-failed');
-
-    cameraStreamRef.current = stream;
-    const videoTrack = stream.getVideoTracks()[0] || null;
-    const settings = videoTrack && typeof videoTrack.getSettings === 'function' ? videoTrack.getSettings() : {};
-    const detectedFacingMode =
-      settings && (settings.facingMode === 'user' || settings.facingMode === 'environment')
-        ? settings.facingMode
-        : normalizedFacingMode;
-    const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
-    const videoInputCount = devices.filter((device) => device.kind === 'videoinput').length;
-    setCameraFacingMode(detectedFacingMode);
-    setCameraCanSwitch(videoInputCount > 1);
-    setCameraCaptureOpen(true);
-    window.requestAnimationFrame(() => {
-      const videoElement = cameraVideoRef.current;
-      if (!videoElement) return;
-      videoElement.srcObject = stream;
-      const maybePlay = videoElement.play?.();
-      if (maybePlay && typeof maybePlay.catch === 'function') maybePlay.catch(() => {});
-    });
-  }, [stopCameraCaptureStream]);
-
   const closeCameraCapture = useCallback(() => {
     setCameraCaptureOpen(false); setCameraCaptureBusy(false); setCameraCaptureError('');
-    setCameraCanSwitch(false); setCameraSwitchBusy(false); setCameraFacingMode('environment');
     stopCameraCaptureStream();
   }, [stopCameraCaptureStream]);
 
   const openCameraCapture = useCallback(async () => {
     setComposerAttachmentMenuOpen(false);
-    setCameraCaptureError(''); setCameraSwitchBusy(false);
+    setCameraCaptureError('');
     if (!navigator.mediaDevices?.getUserMedia) {
       if (captureImageInputRef.current) captureImageInputRef.current.click();
       return;
     }
     try {
-      await startCameraCaptureStream(cameraFacingMode);
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+      cameraStreamRef.current = stream;
+      setCameraCaptureOpen(true);
+      window.requestAnimationFrame(() => {
+        const videoElement = cameraVideoRef.current;
+        if (!videoElement) return;
+        videoElement.srcObject = stream;
+        const maybePlay = videoElement.play?.();
+        if (maybePlay && typeof maybePlay.catch === 'function') maybePlay.catch(() => {});
+      });
     } catch {
       if (captureImageInputRef.current) captureImageInputRef.current.click();
       else setChatError('Unable to access camera. Check camera permissions and try again.');
     }
-  }, [cameraFacingMode, startCameraCaptureStream]);
-
-  const handleSwitchCamera = useCallback(async () => {
-    if (cameraCaptureBusy || cameraSwitchBusy || !cameraCaptureOpen || !cameraCanSwitch) return;
-    if (!navigator.mediaDevices?.getUserMedia) return;
-    const nextFacingMode = cameraFacingMode === 'user' ? 'environment' : 'user';
-    setCameraSwitchBusy(true); setCameraCaptureError('');
-    try {
-      await startCameraCaptureStream(nextFacingMode);
-    } catch {
-      setCameraCaptureError('Unable to switch camera. Please try again.');
-    } finally {
-      setCameraSwitchBusy(false);
-    }
-  }, [cameraCanSwitch, cameraCaptureBusy, cameraCaptureOpen, cameraFacingMode, cameraSwitchBusy, startCameraCaptureStream]);
+  }, []);
 
   useEffect(() => () => { stopCameraCaptureStream(); }, [stopCameraCaptureStream]);
 
@@ -888,11 +846,11 @@ export default function App() {
     setDraft(''); setDraftsByMode({ chat: '', drug: '', research: '', who: '' });
     setAttachedImages([]); setComposerAttachmentMenuOpen(false);
     setCameraCaptureOpen(false); setCameraCaptureBusy(false); setCameraCaptureError('');
-    setCameraFacingMode('environment'); setCameraCanSwitch(false); setCameraSwitchBusy(false);
+    setMobileDesktopHintAuthOpen(false); setMobileDesktopHintAppOpen(false);
     stopCameraCaptureStream();
     setActiveMode(DEFAULT_CHAT_MODE); setChatError(''); setShowScrollToLatest(false);
     setShareError(''); setSessionMenuOpenId(''); setSessionActionBusyId('');
-    setIsSidebarOpen(isMobileLayout ? false : true);
+    setIsSidebarOpen(isMobileLayout ? false : !isRealMobileDevice());
     setSidebarWidth(SIDEBAR_OPEN_WIDTH); setSidebarResizing(false);
     setSearchChatsOpen(false); setChatSearch(''); setModeMenuOpen(false);
     setReviewModalOpen(false); setReviewText(''); setReviewError(''); setReviewSuccess(''); setReviewSending(false);
@@ -1073,8 +1031,7 @@ export default function App() {
       const mobile = mobileMedia.matches;
       const tablet = tabletMedia.matches;
       setIsMobileLayout(mobile); setIsTabletLayout(tablet);
-      if (!mobile && !tablet) return;
-      if (mobile) setIsSidebarOpen(false);
+      if (mobile) { setIsSidebarOpen(false); }
       setSidebarResizing(false); document.body.style.cursor = ''; document.body.style.userSelect = '';
     };
     sync();
@@ -1084,10 +1041,35 @@ export default function App() {
 
   useEffect(() => {
     if (authenticated) {
-      setIsSidebarOpen(!isMobileLayout);
+      // Keep sidebar collapsed on real mobile hardware even in desktop site mode
+      setIsSidebarOpen(!isMobileLayout && !isRealMobileDevice());
       setSidebarWidth((prev) => prev <= SIDEBAR_COLLAPSED_WIDTH + 4 ? SIDEBAR_OPEN_WIDTH : clampSidebarWidth(prev));
     }
   }, [authenticated, isMobileLayout]);
+
+  useEffect(() => {
+    if (shareRouteId) {
+      setMobileDesktopHintAuthOpen(false);
+      return;
+    }
+    if (isMobileLayout && !authenticated && !inGuestMode) {
+      setMobileDesktopHintAuthOpen(true);
+      return;
+    }
+    setMobileDesktopHintAuthOpen(false);
+  }, [authenticated, inGuestMode, isMobileLayout, shareRouteId]);
+
+  useEffect(() => {
+    if (shareRouteId) {
+      setMobileDesktopHintAppOpen(false);
+      return;
+    }
+    if (isMobileLayout && authenticated) {
+      setMobileDesktopHintAppOpen(true);
+      return;
+    }
+    setMobileDesktopHintAppOpen(false);
+  }, [authenticated, isMobileLayout, shareRouteId]);
 
   useEffect(() => {
     if (shareRouteId) return;
@@ -1782,14 +1764,39 @@ export default function App() {
 
   if (!authenticated && !inGuestMode) {
     return (
-      <AuthCard
-        mode={authMode} busy={authBusy} error={authError} info={authInfo} initialEmail={authLastEmail}
-        showResendVerification={showResendVerification} resendBusy={resendBusy}
-        onModeChange={handleAuthModeChange} onEmailLogin={handleEmailLogin} onEmailSignup={handleEmailSignup}
-        onRequestPasswordReset={handleRequestPasswordReset} onResetPassword={handleResetPassword}
-        onGoogleLogin={handleGoogleLogin} onResendVerification={handleResendVerification}
-        onContinueAsGuest={handleContinueAsGuest}
-      />
+      <div className="relative min-h-screen">
+        <AuthCard
+          mode={authMode} busy={authBusy} error={authError} info={authInfo} initialEmail={authLastEmail}
+          showResendVerification={showResendVerification} resendBusy={resendBusy}
+          onModeChange={handleAuthModeChange} onEmailLogin={handleEmailLogin} onEmailSignup={handleEmailSignup}
+          onRequestPasswordReset={handleRequestPasswordReset} onResetPassword={handleResetPassword}
+          onGoogleLogin={handleGoogleLogin} onResendVerification={handleResendVerification}
+          onContinueAsGuest={handleContinueAsGuest}
+        />
+        {isMobileLayout && mobileDesktopHintAuthOpen && (
+          <div className="fixed inset-0 z-[80] flex items-end justify-center sm:items-center sm:p-4">
+            <button
+              type="button"
+              className="absolute inset-0 bg-slate-950/75 backdrop-blur-sm"
+              onClick={() => setMobileDesktopHintAuthOpen(false)}
+              aria-label="Close desktop recommendation"
+            />
+            <div className="relative z-10 w-full rounded-t-2xl border-t border-white/15 bg-slate-900/95 p-4 pb-6 shadow-chat sm:max-w-md sm:rounded-2xl sm:border sm:p-5">
+              <h2 className="text-base font-semibold text-white">Desktop view recommended</h2>
+              <p className="mt-1 text-sm text-slate-300">
+                For the best experience, use this app on desktop or laptop. Mobile works, but some features are easier on a larger screen.
+              </p>
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setMobileDesktopHintAuthOpen(false)}
+                  className="mobile-touch-target rounded-lg border border-white/20 px-4 py-2 text-sm text-slate-200 hover:bg-white/10"
+                >Continue on mobile</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     );
   }
 
@@ -2148,45 +2155,50 @@ export default function App() {
                 const urduScriptClass = isUrduScriptMessage ? 'urdu-left-align' : '';
                 return (
                   <div key={message.id}
-                    className={`message-bubble break-words ${
-                      isMobileLayout ? 'max-w-[92%] rounded-2xl px-3 py-2.5' : 'max-w-3xl rounded-2xl px-4 py-3'
-                    } ${message.role === 'user' ? 'ml-auto min-h-[52px] min-w-[160px] bg-emerald-500/15 text-emerald-100' : 'mr-auto border border-white/10 bg-slate-800/80 text-slate-100'}`}
+                    className={`relative inline-flex w-fit flex-col ${
+                      message.role === 'user'
+                        ? 'ml-auto items-end max-w-[70%]'
+                        : `${isMobileLayout ? 'mr-auto items-start max-w-[92%]' : 'mr-auto items-start max-w-3xl'}`
+                    }`}
                   >
-                    {message.role === 'assistant' ? (
-                      <div className={`message-rich text-sm leading-6 ${urduScriptClass}`.trim()}
-                        style={isUrduScriptMessage ? { direction: 'rtl', textAlign: 'right' } : {}}
-                        dangerouslySetInnerHTML={{ __html: renderMessageHtml(message) }}
-                      />
-                    ) : (
-                      <p className={`whitespace-pre-wrap text-sm leading-6 ${urduScriptClass}`.trim()}
-                        style={isUrduScriptMessage ? { direction: 'rtl', textAlign: 'right' } : {}}
-                      >{messageText}</p>
-                    )}
-                    <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
-                      <span>{message.role === 'user' ? ui.youLabel : ui.assistantLabel}</span>
-                      <div className="flex items-center gap-1">
-                        <button type="button" onClick={() => copyMessageText(message)}
-                          className={`p-1 transition hover:text-white ${message.role === 'user' ? 'bg-transparent' : 'rounded-md hover:bg-white/10'}`}
-                          aria-label="Copy" title="Copy"
-                        ><Copy size={13} /></button>
-                        {message.role === 'user' && (
-                          <button type="button" onClick={() => editUserMessage(message)}
-                            className="bg-transparent p-1 transition hover:text-white"
-                            aria-label="Edit" title="Edit"
-                          ><Pencil size={13} /></button>
-                        )}
-                        {message.role === 'assistant' && (
-                          <button type="button" onClick={() => toggleMessageSpeech(message)}
-                            className={`rounded-md p-1 transition ${speakingMessageId === message.id ? 'bg-emerald-500/20 text-emerald-200' : 'hover:bg-white/10 hover:text-white'}`}
-                            aria-label={speakingMessageId === message.id ? 'Stop speaking' : 'Speak'}
-                          >{speakingMessageId === message.id ? <VolumeX size={13} /> : <Volume2 size={13} />}</button>
-                        )}
-                        <span className="ml-1">{formatTime(message.created_at)}</span>
-                      </div>
+                    <div
+                      className={`message-bubble break-words ${
+                        isMobileLayout ? 'rounded-2xl px-3 py-2.5' : 'rounded-2xl px-4 py-3'
+                      } ${message.role === 'user' ? 'inline-block min-h-[52px] w-fit max-w-full bg-emerald-500/15 text-emerald-100' : 'border border-white/10 bg-slate-800/80 text-slate-100'}`}
+                    >
+                      {message.role === 'assistant' ? (
+                        <div className={`message-rich text-sm leading-6 ${urduScriptClass}`.trim()}
+                          style={isUrduScriptMessage ? { direction: 'rtl', textAlign: 'right' } : {}}
+                          dangerouslySetInnerHTML={{ __html: renderMessageHtml(message) }}
+                        />
+                      ) : (
+                        <p className={`inline-block whitespace-pre-wrap text-sm leading-6 ${urduScriptClass}`.trim()}
+                          style={isUrduScriptMessage ? { direction: 'rtl', textAlign: 'right' } : {}}
+                        >{messageText}</p>
+                      )}
+                      {message.failed && (
+                        <p className="mt-2 rounded-md bg-red-500/20 px-2 py-1 text-xs text-red-200">{ui.failedToSend}</p>
+                      )}
                     </div>
-                    {message.failed && (
-                      <p className="mt-2 rounded-md bg-red-500/20 px-2 py-1 text-xs text-red-200">{ui.failedToSend}</p>
-                    )}
+                    <div className="mt-1 inline-flex self-end items-center gap-1 text-[11px] text-slate-400">
+                      <button type="button" onClick={() => copyMessageText(message)}
+                        className="rounded-md p-1 transition hover:bg-white/10 hover:text-white"
+                        aria-label="Copy" title="Copy"
+                      ><Copy size={13} /></button>
+                      {message.role === 'user' && (
+                        <button type="button" onClick={() => editUserMessage(message)}
+                          className="rounded-md p-1 transition hover:bg-white/10 hover:text-white"
+                          aria-label="Edit" title="Edit"
+                        ><Pencil size={13} /></button>
+                      )}
+                      {message.role === 'assistant' && (
+                        <button type="button" onClick={() => toggleMessageSpeech(message)}
+                          className={`rounded-md p-1 transition ${speakingMessageId === message.id ? 'bg-emerald-500/20 text-emerald-200' : 'hover:bg-white/10 hover:text-white'}`}
+                          aria-label={speakingMessageId === message.id ? 'Stop speaking' : 'Speak'}
+                        >{speakingMessageId === message.id ? <VolumeX size={13} /> : <Volume2 size={13} />}</button>
+                      )}
+                      <span className="ml-1">{formatTime(message.created_at)}</span>
+                    </div>
                   </div>
                 );
               })}
@@ -2255,7 +2267,7 @@ export default function App() {
 
                 <div className={`rounded-2xl border border-white/15 bg-slate-900/85 backdrop-blur-sm ${isMobileLayout ? 'p-1' : 'p-1.5'}`}>
                   <input ref={uploadImageInputRef} type="file" accept={ATTACHMENT_PICKER_ACCEPT} multiple onChange={handleUploadImageSelect} className="hidden" />
-                  <input ref={captureImageInputRef} type="file" accept="image/*" capture={cameraFacingMode === 'user' ? 'user' : 'environment'} onChange={handleCaptureImageSelect} className="hidden" />
+                  <input ref={captureImageInputRef} type="file" accept="image/*" capture="environment" onChange={handleCaptureImageSelect} className="hidden" />
 
                   <div className="relative">
                     <textarea
@@ -2325,7 +2337,7 @@ export default function App() {
                 </div>
               </div>
             </div>
-            <footer className={`pointer-events-none bg-transparent text-center text-xs text-slate-400/70 ${isMobileLayout ? 'hidden' : 'px-4 py-1.5'}`}>
+            <footer className={`pointer-events-none bg-transparent text-center text-slate-400/50 ${isMobileLayout ? 'px-2 py-0.5 text-[9px] leading-tight' : 'px-4 py-1.5 text-xs'}`}>
               {ui.footerDisclaimer}
             </footer>
           </div>
@@ -2343,23 +2355,41 @@ export default function App() {
             <div className="mt-3 overflow-hidden rounded-xl border border-white/10 bg-black">
               <video ref={cameraVideoRef} autoPlay playsInline muted className="h-[260px] w-full object-cover sm:h-[320px]" />
             </div>
-            <p className="mt-2 text-xs text-slate-400">Active camera: {cameraFacingMode === 'user' ? 'Front' : 'Back'}</p>
-            <div className="mt-4 flex items-center justify-between gap-2">
-              <button type="button" onClick={handleSwitchCamera} disabled={cameraCaptureBusy || cameraSwitchBusy || !cameraCanSwitch}
-                className="mobile-touch-target inline-flex items-center gap-2 rounded-lg border border-white/20 px-4 py-2 text-sm text-slate-100 hover:bg-white/10 disabled:opacity-60"
-              >{cameraSwitchBusy ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}Switch camera</button>
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={closeCameraCapture} className="mobile-touch-target rounded-lg border border-white/20 px-4 py-2 text-sm text-slate-200 hover:bg-white/10">Cancel</button>
-                <button type="button" onClick={handleCameraCapturePhoto} disabled={cameraCaptureBusy || cameraSwitchBusy}
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button type="button" onClick={closeCameraCapture} className="mobile-touch-target rounded-lg border border-white/20 px-4 py-2 text-sm text-slate-200 hover:bg-white/10">Cancel</button>
+              <button type="button" onClick={handleCameraCapturePhoto} disabled={cameraCaptureBusy}
                 className="mobile-touch-target inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-emerald-400 disabled:opacity-60"
               >{cameraCaptureBusy ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />}Capture</button>
-              </div>
             </div>
           </div>
         </div>
       )}
 
       {/* ── HELP MODAL ───────────────────────────────────────────────────── */}
+      {isMobileLayout && mobileDesktopHintAppOpen && (
+        <div className="fixed inset-0 z-[80] flex items-end justify-center sm:items-center sm:p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-950/75 backdrop-blur-sm"
+            onClick={() => setMobileDesktopHintAppOpen(false)}
+            aria-label="Close desktop recommendation"
+          />
+          <div className="relative z-10 w-full rounded-t-2xl border-t border-white/15 bg-slate-900/95 p-4 pb-6 shadow-chat sm:max-w-md sm:rounded-2xl sm:border sm:p-5">
+            <h2 className="text-base font-semibold text-white">Desktop view recommended</h2>
+            <p className="mt-1 text-sm text-slate-300">
+              You are signed in. For smoother navigation and better readability, desktop or laptop view is recommended.
+            </p>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setMobileDesktopHintAppOpen(false)}
+                className="mobile-touch-target rounded-lg border border-white/20 px-4 py-2 text-sm text-slate-200 hover:bg-white/10"
+              >Continue on mobile</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {helpModalOpen && (
         <div className="absolute inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
           <button type="button" className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm" onClick={handleCloseHelpModal} aria-label="Close help" />

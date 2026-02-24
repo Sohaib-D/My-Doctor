@@ -476,3 +476,15 @@ html.theme-light *::-webkit-scrollbar-thumb:hover { background: rgba(137, 153, 1
   outline: 2px solid rgba(34, 197, 94, 0.6);
   outline-offset: 2px;
 }
+
+/* Composer focus: remove green focus box */
+.composer-shell *:focus,
+.composer-shell *:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.composer-shell textarea:focus,
+.composer-shell textarea:focus-visible {
+  border-color: transparent !important;
+}

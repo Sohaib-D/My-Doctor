@@ -89,8 +89,6 @@ d:\My Doctor
 |- .env
 |- .env.example
 |- .gitignore
-|- .pytest_cache/
-|- __pycache__/
 |- .venv/
 |- venv/
 |- README.md

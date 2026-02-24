@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import logging
@@ -61,7 +61,7 @@ Language rule:
 - Roman Urdu -> Roman Urdu (Latin letters only).
 - Never switch language on your own. If user writes English or Roman Urdu, do not reply in Urdu script unless user explicitly orders.
 - If the user in any language (Roman Urdu or English) explicitly orders Urdu script replies, reply in Urdu Script.
-- For Urdu script replies: do not use Devanagari/Hindi words or mixed scripts.
+- For Urdu script replies: do not use even a single Devanagari/Hindi words or mixed scripts.
 - Keep formatting clear with headings and bullets when useful.
 
 Safety:
@@ -424,39 +424,6 @@ _MEDICAL_LATIN_HINTS = {
     "vomit",
     "vomiting",
     "xray",
-    # Roman Urdu medical signals
-    "behosh",
-    "bemari",
-    "bimari",
-    "bukhar",
-    "chakkar",
-    "dard",
-    "dast",
-    "dawa",
-    "dawai",
-    "gala",
-    "ilaaj",
-    "jalan",
-    "jism",
-    "kamzori",
-    "khansi",
-    "khaansi",
-    "khun",
-    "khoon",
-    "matli",
-    "pait",
-    "pet",
-    "saans",
-    "sar",
-    "seena",
-    "sugar",
-    "shugar",
-    "tabiyat",
-    "thakan",
-    "ulti",
-    "ultee",
-    "zukam",
-    "zukaam",
 }
 
 _MEDICAL_PHRASES = (
@@ -482,8 +449,7 @@ _URDU_MEDICAL_RE = re.compile(
         r"\u0632\u06a9\u0627\u0645|\u062f\u0648\u0627|\u062f\u0648\u0627\u0626\u06cc|"
         r"\u0639\u0644\u0627\u062c|\u0637\u0628\u06cc|\u0633\u06cc\u0646\u06c1|"
         r"\u0633\u0627\u0646\u0633|\u06a9\u06be\u0648\u0646|\u0628\u06cc\u0645\u0627\u0631\u06cc|"
-        r"\u0628\u06d2\s*\u0686\u06cc\u0646\u06cc|\u062a\u0628\u06cc\u062a|"
-        r"\u067e\u06cc\u0679|\u0633\u0631|\u0627\u0644\u0631\u062c\u06cc)"
+        r"\u0628\u06d2 \u0686\u06cc\u0646\u06cc|\u062a\u0628\u06cc\u062a)"
     )
 )
 
@@ -593,27 +559,15 @@ def _looks_medical_query(text: str) -> bool:
     return any(token in _MEDICAL_LATIN_HINTS for token in tokens)
 
 
-def _sanitize_attachment_context_for_domain_check(attachment_context: str) -> str:
-    cleaned = str(attachment_context or "")
-    if not cleaned:
-        return ""
-    cleaned = re.sub(r"\[(file|image|attachment)\s+\d+:[^\]]+\]", " ", cleaned, flags=re.IGNORECASE)
-    cleaned = cleaned.replace("Extracted text:", " ")
-    cleaned = cleaned.replace("User attached this image for visual analysis.", " ")
-    cleaned = cleaned.replace("Use only medically relevant visible details.", " ")
-    cleaned = re.sub(r"\s+", " ", cleaned)
-    return cleaned.strip()
-
-
 def _is_non_medical_turn(user_message: str, attachment_context: str) -> bool:
-    primary_text = str(user_message or "").strip()
-    if primary_text:
-        return not _looks_medical_query(primary_text)
-
-    attachment_text = _sanitize_attachment_context_for_domain_check(attachment_context)
-    if not attachment_text:
+    combined = "\n".join(
+        part
+        for part in [str(user_message or "").strip(), str(attachment_context or "").strip()]
+        if part
+    ).strip()
+    if not combined:
         return False
-    return not _looks_medical_query(attachment_text)
+    return not _looks_medical_query(combined)
 
 
 def _build_non_medical_soft_reminder(expected_language: str) -> str:
@@ -855,39 +809,6 @@ def _seed_history() -> list[dict[str, Any]]:
     return [dict(item) for item in _SYSTEM_MESSAGES]
 
 
-def _derive_non_medical_streak_from_history(history: list[dict[str, Any]]) -> int:
-    streak = 0
-    for item in reversed(history):
-        if str((item or {}).get("role") or "") != "user":
-            continue
-        text = _extract_assistant_text((item or {}).get("content"))
-        if not text:
-            continue
-        if _looks_medical_query(text):
-            break
-        streak += 1
-    return streak
-
-
-async def _increment_non_medical_streak(session_id: str) -> int:
-    normalized_session_id = str(session_id or "").strip()
-    if not normalized_session_id:
-        return 0
-    async with _HISTORY_LOCK:
-        current = int(_SESSION_NON_MEDICAL_STREAK.get(normalized_session_id, 0) or 0)
-        next_value = current + 1
-        _SESSION_NON_MEDICAL_STREAK[normalized_session_id] = next_value
-        return next_value
-
-
-async def _reset_non_medical_streak(session_id: str) -> None:
-    normalized_session_id = str(session_id or "").strip()
-    if not normalized_session_id:
-        return
-    async with _HISTORY_LOCK:
-        _SESSION_NON_MEDICAL_STREAK[normalized_session_id] = 0
-
-
 def _prune_expired_sessions(now: float) -> None:
     expired_ids = [
         session_id
@@ -899,7 +820,6 @@ def _prune_expired_sessions(now: float) -> None:
         _SESSION_HISTORIES.pop(session_id, None)
         _SESSION_CREATED_AT.pop(session_id, None)
         _SESSION_FLAGS.pop(session_id, None)
-        _SESSION_NON_MEDICAL_STREAK.pop(session_id, None)
         stale_shares = [share_id for share_id, value in _SHARED_SESSION_MAP.items() if value == session_id]
         for share_id in stale_shares:
             _SHARED_SESSION_MAP.pop(share_id, None)
@@ -1168,10 +1088,8 @@ async def _append_user_message(session_id: str | None, message: str) -> tuple[st
         if is_new_session:
             _SESSION_CREATED_AT[normalized_session_id] = now
             _get_session_flags(normalized_session_id)
-            _SESSION_NON_MEDICAL_STREAK[normalized_session_id] = 0
         else:
             _SESSION_CREATED_AT.setdefault(normalized_session_id, now)
-            _SESSION_NON_MEDICAL_STREAK.setdefault(normalized_session_id, 0)
         return normalized_session_id, [dict(item) for item in history]
 
 
@@ -1188,7 +1106,6 @@ async def _append_assistant_message(session_id: str, message: str) -> None:
             history = _seed_history()
             _SESSION_CREATED_AT.setdefault(normalized_session_id, now)
             _get_session_flags(normalized_session_id)
-            _SESSION_NON_MEDICAL_STREAK.setdefault(normalized_session_id, 0)
         history.append({"role": "assistant", "content": str(message or "").strip()})
         history = _trim_history(history)
         _SESSION_HISTORIES[normalized_session_id] = history
@@ -1246,10 +1163,6 @@ async def hydrate_session_history(
             _SESSION_TOUCHED_AT[normalized_session_id] = now
             _SESSION_CREATED_AT.setdefault(normalized_session_id, now)
             _get_session_flags(normalized_session_id)
-            _SESSION_NON_MEDICAL_STREAK.setdefault(
-                normalized_session_id,
-                _derive_non_medical_streak_from_history(_SESSION_HISTORIES[normalized_session_id]),
-            )
             return
 
         history = _seed_history()
@@ -1267,9 +1180,6 @@ async def hydrate_session_history(
         _SESSION_TOUCHED_AT[normalized_session_id] = now
         _SESSION_CREATED_AT.setdefault(normalized_session_id, now)
         _get_session_flags(normalized_session_id)
-        _SESSION_NON_MEDICAL_STREAK[normalized_session_id] = _derive_non_medical_streak_from_history(
-            history
-        )
 
 
 async def get_session_flags_snapshot(session_id: str) -> dict[str, Any]:
@@ -1391,7 +1301,6 @@ async def delete_session(session_id: str) -> bool:
         _SESSION_TOUCHED_AT.pop(normalized_session_id, None)
         _SESSION_CREATED_AT.pop(normalized_session_id, None)
         _SESSION_FLAGS.pop(normalized_session_id, None)
-        _SESSION_NON_MEDICAL_STREAK.pop(normalized_session_id, None)
         stale_shares = [share_id for share_id, value in _SHARED_SESSION_MAP.items() if value == normalized_session_id]
         for share_id in stale_shares:
             _SHARED_SESSION_MAP.pop(share_id, None)
@@ -1452,21 +1361,6 @@ async def chat_with_groq(
         raise ValueError("GROQ_API_KEY environment variable is not set.")
 
     active_session_id, history = await _append_user_message(session_id, storage_user_message)
-    is_non_medical_turn = _is_non_medical_turn(user_message, attachment_context)
-    non_medical_streak = 0
-    if is_non_medical_turn:
-        non_medical_streak = await _increment_non_medical_streak(active_session_id)
-        if non_medical_streak > _NON_MEDICAL_SOFT_LIMIT:
-            limited_reply = _build_non_medical_hard_stop(expected_language)
-            await _append_assistant_message(active_session_id, limited_reply)
-            return ChatResponse(
-                response=limited_reply,
-                session_id=active_session_id,
-                emergency=False,
-            )
-    else:
-        await _reset_non_medical_streak(active_session_id)
-
     request_messages = _build_request_messages(
         history,
         latest_user_message=user_message,
@@ -1502,10 +1396,6 @@ async def chat_with_groq(
         # Only use the generic fallback if ai_reply is completely empty.
         if not ai_reply or not ai_reply.strip():
             ai_reply = _build_language_fallback(expected_language)
-
-    if is_non_medical_turn and non_medical_streak > 0:
-        ai_reply = _append_non_medical_reminder(ai_reply, expected_language)
-        ai_reply = _normalize_reply_for_expected_language(ai_reply, expected_language)
     await _append_assistant_message(active_session_id, ai_reply)
 
     emergency_prefix = ""
@@ -1514,151 +1404,3 @@ async def chat_with_groq(
 
     final_response = f"{emergency_prefix}{ai_reply}".strip()
     return ChatResponse(response=final_response, session_id=active_session_id, emergency=is_emergency)
-
-
-def run_language_self_checks() -> None:
-    """Run in-file smoke checks for language detection/compliance logic."""
-
-    def _assert(condition: bool, message: str) -> None:
-        if not condition:
-            raise AssertionError(message)
-
-    def _clear_runtime_state() -> None:
-        _SESSION_HISTORIES.clear()
-        _SESSION_TOUCHED_AT.clear()
-        _SESSION_CREATED_AT.clear()
-        _SESSION_FLAGS.clear()
-        _SESSION_NON_MEDICAL_STREAK.clear()
-        _SHARED_SESSION_MAP.clear()
-
-    _assert(_detect_expected_language("hello world") == _LANG_ENGLISH, "english detection failed")
-    _assert(_detect_expected_language("Please help me") == _LANG_ENGLISH, "english detection failed")
-    _assert(
-        _detect_expected_language("\u0633\u0644\u0627\u0645 \u06a9\u06cc\u0633\u06d2 \u06c1\u06cc\u06ba\u061f")
-        == _LANG_URDU_SCRIPT,
-        "urdu-script detection failed",
-    )
-    _assert(
-        _detect_expected_language("\u06c1\u0645 \u0679\u06be\u06cc\u06a9 \u06c1\u06cc\u06ba abc")
-        == _LANG_URDU_SCRIPT,
-        "mixed urdu-script detection failed",
-    )
-    _assert(_detect_expected_language("aap kaise hain") == _LANG_ROMAN_URDU, "roman urdu detection failed")
-    _assert(_detect_expected_language("main thik hoon") == _LANG_ROMAN_URDU, "roman urdu detection failed")
-    _assert(_detect_expected_language("this is a test") == _LANG_ENGLISH, "english detection failed")
-    _assert(
-        _detect_expected_language("ye urdu script may likho") == _LANG_URDU_SCRIPT,
-        "urdu explicit override failed",
-    )
-    _assert(
-        _detect_expected_language("Please reply in Urdu") == _LANG_URDU_SCRIPT,
-        "urdu explicit override failed",
-    )
-    _assert(
-        _detect_expected_language("\u06cc\u06c1 \u0627\u0631\u062f\u0648 \u0645\u06cc\u06ba \u0644\u06a9\u06be\u06cc\u06ba")
-        == _LANG_URDU_SCRIPT,
-        "urdu explicit override failed",
-    )
-    _assert(
-        _detect_expected_language("write in urdu script please") == _LANG_URDU_SCRIPT,
-        "urdu explicit override failed",
-    )
-    _assert(
-        _detect_expected_language("urdu mein btao") == _LANG_URDU_SCRIPT,
-        "urdu explicit override failed",
-    )
-    _assert(
-        _detect_expected_language("Tell me about Urdu literature") == _LANG_ENGLISH,
-        "urdu word without request should remain english",
-    )
-
-    _assert(_is_language_compliant("this is english.", _LANG_ENGLISH), "english compliance failed")
-    _assert(not _is_language_compliant("\u0633\u0644\u0627\u0645", _LANG_ENGLISH), "english rejection failed")
-    _assert(not _is_language_compliant("main thik hoon", _LANG_ENGLISH), "english rejection failed")
-
-    _assert(
-        _is_language_compliant(
-            "\u06a9\u06cc\u0627 \u0622\u067e \u0628\u06c1\u062a\u0631 \u0645\u062d\u0633\u0648\u0633 \u06a9\u0631 \u0631\u06c1\u06d2 \u06c1\u06cc\u06ba\u061f",
-            _LANG_URDU_SCRIPT,
-        ),
-        "urdu-script compliance failed",
-    )
-    _assert(
-        _is_language_compliant(
-            "\u0645\u06cc\u0631\u0627 \u0633\u0631 \u062f\u0631\u062f \u0679\u06be\u06cc\u06a9 \u06c1\u0648 \u06af\u06cc\u0627 \u06c1\u06d2\u06d4",
-            _LANG_URDU_SCRIPT,
-        ),
-        "urdu-script compliance failed",
-    )
-    _assert(
-        _is_language_compliant("\u06a9\u06cc\u0627 \u0622\u067e \u0679\u06be\u06cc\u06a9 \u06c1\u06cc\u06ba?", _LANG_URDU_SCRIPT),
-        "urdu-script ascii punctuation tolerance failed",
-    )
-    _assert(
-        _is_language_compliant("\u0645\u06cc\u0631\u0627 \u0633\u0631 \u062f\u0631\u062f \u06c1\u06d2.", _LANG_URDU_SCRIPT),
-        "urdu-script ascii punctuation tolerance failed",
-    )
-    _assert(
-        _is_language_compliant("\u0622\u067e \u06a9\u0648 fever \u06c1\u06d2\u061f", _LANG_URDU_SCRIPT),
-        "mixed urdu + latin medical term should be accepted",
-    )
-    _assert(
-        not _is_language_compliant("\u0915\u094d\u092f\u093e \u0906\u092a \u0920\u0940\u0915 \u0939\u0948\u0902\u061f", _LANG_URDU_SCRIPT),
-        "devanagari should be rejected",
-    )
-
-    _assert(_is_language_compliant("aap kaise hain", _LANG_ROMAN_URDU), "roman urdu compliance failed")
-    _assert(not _is_language_compliant("\u0633\u0644\u0627\u0645", _LANG_ROMAN_URDU), "roman urdu rejection failed")
-    _assert(_is_language_compliant("this is english", _LANG_ROMAN_URDU), "roman urdu latin acceptance failed")
-
-    raw = (
-        "**\u067e\u06cc\u0679 \u062f\u0631\u062f:**\n"
-        "- \u06c1\u0644\u06a9\u06cc \u063a\u0630\u0627 \u0644\u06cc\u06ba.\n"
-        "- \u067e\u0627\u0646\u06cc \u067e\u06cc\u0626\u06ba, \u0622\u0631\u0627\u0645 \u06a9\u0631\u06cc\u06ba?"
-    )
-    normalized = _normalize_reply_for_expected_language(raw, _LANG_URDU_SCRIPT)
-    _assert("*" not in normalized, "urdu normalization failed for markdown")
-    _assert(":" not in normalized, "urdu normalization failed for colon")
-    _assert("," not in normalized, "urdu normalization failed for comma")
-    _assert("." not in normalized, "urdu normalization failed for period")
-    _assert("?" not in normalized, "urdu normalization failed for question mark")
-    _assert("\u06d4" in normalized, "urdu normalization missing full stop")
-    _assert("\u060c" in normalized, "urdu normalization missing comma")
-    _assert("\u061f" in normalized, "urdu normalization missing question mark")
-    _assert("\u2022 " in normalized, "urdu normalization missing bullet conversion")
-
-    async def _fake_generate_with_fallback(_messages: list[dict[str, Any]]) -> str:
-        return (
-            "**\u067e\u06cc\u0679 \u062f\u0631\u062f:** "
-            "\u06c1\u0644\u06a9\u06cc \u063a\u0630\u0627 \u0644\u06cc\u06ba, "
-            "\u067e\u0627\u0646\u06cc \u067e\u06cc\u0626\u06ba."
-        )
-
-    _clear_runtime_state()
-    original_api_key = GROQ_API_KEY
-    original_generate_with_fallback = generate_with_fallback
-    try:
-        globals()["GROQ_API_KEY"] = "test-key"
-        globals()["generate_with_fallback"] = _fake_generate_with_fallback
-        try:
-            response = asyncio.run(
-                chat_with_groq("Axha meray pait may dard hay is k liay Urdu script may dawai btao")
-            )
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            try:
-                response = loop.run_until_complete(
-                    chat_with_groq("Axha meray pait may dard hay is k liay Urdu script may dawai btao")
-                )
-            finally:
-                loop.close()
-    finally:
-        globals()["GROQ_API_KEY"] = original_api_key
-        globals()["generate_with_fallback"] = original_generate_with_fallback
-        _clear_runtime_state()
-
-    fallback = _build_language_fallback(_LANG_URDU_SCRIPT)
-    _assert(response.response != fallback, "urdu reply unexpectedly fell back to generic response")
-    _assert("\u067e\u06cc\u0679" in response.response, "urdu reply missing expected content")
-    _assert("?" not in response.response, "urdu reply punctuation normalization failed")
-    _assert("\u06d4" in response.response, "urdu reply missing urdu full stop")

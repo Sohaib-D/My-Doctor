@@ -1,4 +1,3 @@
-import React from 'react';
 import { Microscope } from 'lucide-react';
 import ModePromptPanel from './ModePromptPanel';
 

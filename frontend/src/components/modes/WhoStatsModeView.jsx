@@ -1,4 +1,3 @@
-import React from 'react';
 import { Globe2 } from 'lucide-react';
 import ModePromptPanel from './ModePromptPanel';
 

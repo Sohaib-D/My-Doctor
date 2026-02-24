@@ -1,4 +1,3 @@
-import React from 'react';
 import { Activity, Cross, Dna, HeartPulse, Pill, Stethoscope } from 'lucide-react';
 
 const floatingIcons = [
