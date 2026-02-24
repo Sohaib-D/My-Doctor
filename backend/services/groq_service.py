@@ -14,7 +14,7 @@ import httpx
 from fastapi import HTTPException
 
 from backend.schemas.chat import ChatAttachment, ChatResponse
-from backend.services.groq_client import get_groq_response
+from backend.services.groq_pro_manager import groq_pro_manager
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
@@ -942,63 +942,11 @@ def _extract_assistant_text(content: Any) -> str:
     return _clean_text(str(content or ""), max_len=6000)
 
 
-def _is_rate_limited_error(exc: Exception) -> bool:
-    if isinstance(exc, httpx.HTTPStatusError):
-        status_code = exc.response.status_code if exc.response is not None else None
-        if status_code == 429:
-            return True
-        response_text = ""
-        if exc.response is not None:
-            try:
-                response_text = exc.response.text or ""
-            except Exception:
-                response_text = ""
-        if "rate limit" in response_text.lower():
-            return True
-    return "rate limit" in str(exc or "").lower()
-
-
-async def _generate_with_model(
-    model: str,
-    messages: list[dict[str, Any]],
-) -> str:
-    return await get_groq_response(
-        model=model,
-        messages=messages,
-        api_key=GROQ_API_KEY or "",
-        api_url=GROQ_API_URL,
-    )
-
-
 async def generate_with_fallback(messages: list[dict[str, Any]]) -> str:
-    if not PRIMARY_MODEL or not SECONDARY_MODEL or not TERTIARY_MODEL:
-        raise HTTPException(
-            status_code=500,
-            detail="Model fallback configuration is incomplete.",
-        )
-
     try:
-        try:
-            return await _generate_with_model(PRIMARY_MODEL, messages)
-        except httpx.HTTPStatusError as primary_exc:
-            if not _is_rate_limited_error(primary_exc):
-                raise
-            logger.warning("Primary rate limited. Switching to secondary.")
-            try:
-                return await _generate_with_model(SECONDARY_MODEL, messages)
-            except httpx.HTTPStatusError as secondary_exc:
-                if not _is_rate_limited_error(secondary_exc):
-                    raise
-                logger.warning("Secondary rate limited. Switching to tertiary.")
-                try:
-                    return await _generate_with_model(TERTIARY_MODEL, messages)
-                except httpx.HTTPStatusError as tertiary_exc:
-                    if _is_rate_limited_error(tertiary_exc):
-                        raise HTTPException(
-                            status_code=503,
-                            detail="All models are currently rate limited. Please try again shortly.",
-                        ) from tertiary_exc
-                    raise
+        return await groq_pro_manager.chat(messages, temperature=0.45, max_tokens=1024)
+    except HTTPException:
+        raise
     except httpx.HTTPStatusError as exc:
         raise HTTPException(
             status_code=502,
@@ -1298,8 +1246,8 @@ async def chat_with_groq(
     emergency_probe_text = "\n".join(part for part in [user_message, attachment_context] if part).strip()
     is_emergency = detect_emergency(emergency_probe_text)
 
-    if not GROQ_API_KEY:
-        raise ValueError("GROQ_API_KEY environment variable is not set.")
+    if not GROQ_API_KEY and not groq_pro_manager.has_keys():
+        raise ValueError("GROQ_API_KEY or GROQ_API_KEYS environment variable is not set.")
 
     active_session_id, history = await _append_user_message(session_id, storage_user_message)
     request_messages = _build_request_messages(
