@@ -25,12 +25,12 @@ body,
   background: #0f172a;
 }
 
-/* On real mobile hardware (including desktop-site mode), allow vertical page
-   scrolling and top-swipe refresh while keeping horizontal clipping. */
+/* On real mobile hardware (including desktop-site mode), allow full page
+   panning when zoomed and support pull-to-refresh. */
 html.real-mobile-device,
 html.real-mobile-device body,
 html.real-mobile-device #root {
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
@@ -498,15 +498,37 @@ html, body {
   overscroll-behavior: none;
 }
 
-/* Keep native overscroll suppression on real mobile as well; refresh is
-   triggered via the explicit threshold handler in App.jsx. */
+/* Allow native overscroll chaining on real mobile for pull-to-refresh. */
 html.real-mobile-device,
 html.real-mobile-device body {
-  overscroll-behavior-y: none;
+  overscroll-behavior-y: auto;
 }
 
 html.real-mobile-device .chat-scroll-area {
-  overscroll-behavior-y: contain;
+  overscroll-behavior-y: auto;
+}
+
+/* When browser zoom is active on mobile, allow horizontal and vertical pan
+   inside app and chat surfaces. */
+html.real-mobile-device .app-shell,
+html.real-mobile-device .chat-main,
+html.real-mobile-device .chat-scroll-area {
+  overflow-x: auto !important;
+}
+
+html.real-mobile-device .chat-scroll-area {
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Single-finger pan support for zoomed mobile interaction in login + app */
+html.real-mobile-device,
+html.real-mobile-device body,
+html.real-mobile-device #root,
+html.real-mobile-device .app-shell,
+html.real-mobile-device .chat-main,
+html.real-mobile-device .chat-scroll-area {
+  touch-action: pan-x pan-y pinch-zoom;
 }
 
 /* ── Focus-visible outline (accessibility) ───────────────────────────────── */

@@ -134,7 +134,7 @@ const SETTINGS_TAB_GENERAL = 'general';
 const SETTINGS_TAB_PERSONALIZATION = 'personalization';
 const SETTINGS_TAB_MEDICAL = 'medical';
 const LOGIN_DESKTOP_POPUP_SESSION_KEY = 'pd_login_desktop_popup_dismissed';
-const PULL_REFRESH_TRIGGER_PX = 132;
+const PULL_REFRESH_TRIGGER_PX = 96;
 const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   'txt','md','csv','json','xml','html','htm','log','rtf','yaml','yml','ini','conf',
 ]);
@@ -553,6 +553,8 @@ export default function App() {
 
   const [draft, setDraft] = useState('');
   const [draftsByMode, setDraftsByMode] = useState(() => ({ chat: '', drug: '', research: '', who: '' }));
+  const [isComposerFocusedMobile, setIsComposerFocusedMobile] = useState(false);
+  const [mobileKeyboardOffset, setMobileKeyboardOffset] = useState(0);
   const [attachedImages, setAttachedImages] = useState([]);
   const [composerAttachmentMenuOpen, setComposerAttachmentMenuOpen] = useState(false);
   const [cameraCaptureOpen, setCameraCaptureOpen] = useState(false);
@@ -617,6 +619,7 @@ export default function App() {
 
   const authenticated = Boolean(token);
   const inGuestMode = guestMode && !authenticated;
+  const isRealMobileUser = isRealMobileDevice();
   const isDesktopLayout = !isMobileLayout && !isTabletLayout;
   const uiLanguage = appSettings.language === 'ur' ? 'ur' : 'en';
   const isUrduUI = uiLanguage === 'ur';
@@ -973,6 +976,14 @@ export default function App() {
     });
   }, [isMobileLayout]);
 
+  const handleSidebarSurfaceClick = useCallback((event) => {
+    if (isMobileLayout || isSidebarOpen) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest('button, a, input, select, textarea, [role="button"]')) return;
+    openSidebar();
+  }, [isMobileLayout, isSidebarOpen, openSidebar]);
+
   const handleSidebarResizeStart = useCallback((event) => {
     if (!isDesktopLayout || !isSidebarOpen) return;
     setSidebarResizing(true);
@@ -1179,14 +1190,16 @@ export default function App() {
       maxPull = 0;
     };
 
-    window.addEventListener('touchstart', onTouchStart, { passive: true });
-    window.addEventListener('touchmove', onTouchMove, { passive: true });
-    window.addEventListener('touchend', onTouchEnd, { passive: true });
+    window.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
+    window.addEventListener('touchmove', onTouchMove, { passive: true, capture: true });
+    window.addEventListener('touchend', onTouchEnd, { passive: true, capture: true });
+    window.addEventListener('touchcancel', onTouchEnd, { passive: true, capture: true });
 
     return () => {
-      window.removeEventListener('touchstart', onTouchStart);
-      window.removeEventListener('touchmove', onTouchMove);
-      window.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('touchstart', onTouchStart, true);
+      window.removeEventListener('touchmove', onTouchMove, true);
+      window.removeEventListener('touchend', onTouchEnd, true);
+      window.removeEventListener('touchcancel', onTouchEnd, true);
     };
   }, [authenticated, inGuestMode, shareRouteId]);
 
@@ -1223,16 +1236,51 @@ export default function App() {
       maxPull = 0;
     };
 
-    scrollElement.addEventListener('touchstart', onTouchStart, { passive: true });
-    scrollElement.addEventListener('touchmove', onTouchMove, { passive: true });
-    scrollElement.addEventListener('touchend', onTouchEnd, { passive: true });
+    scrollElement.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
+    scrollElement.addEventListener('touchmove', onTouchMove, { passive: true, capture: true });
+    scrollElement.addEventListener('touchend', onTouchEnd, { passive: true, capture: true });
+    scrollElement.addEventListener('touchcancel', onTouchEnd, { passive: true, capture: true });
 
     return () => {
-      scrollElement.removeEventListener('touchstart', onTouchStart);
-      scrollElement.removeEventListener('touchmove', onTouchMove);
-      scrollElement.removeEventListener('touchend', onTouchEnd);
+      scrollElement.removeEventListener('touchstart', onTouchStart, true);
+      scrollElement.removeEventListener('touchmove', onTouchMove, true);
+      scrollElement.removeEventListener('touchend', onTouchEnd, true);
+      scrollElement.removeEventListener('touchcancel', onTouchEnd, true);
     };
   }, [authenticated, shareRouteId, activeSessionId, newChatInterfaceVersion]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !isRealMobileUser) {
+      setIsComposerFocusedMobile(false);
+      setMobileKeyboardOffset(0);
+      return undefined;
+    }
+    if (!isComposerFocusedMobile) {
+      setMobileKeyboardOffset(0);
+      return undefined;
+    }
+    const viewport = window.visualViewport;
+    if (!viewport) {
+      setMobileKeyboardOffset(0);
+      return undefined;
+    }
+
+    const syncKeyboardOffset = () => {
+      const keyboardInset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      setMobileKeyboardOffset(Math.round(keyboardInset));
+    };
+
+    syncKeyboardOffset();
+    viewport.addEventListener('resize', syncKeyboardOffset);
+    viewport.addEventListener('scroll', syncKeyboardOffset);
+    window.addEventListener('orientationchange', syncKeyboardOffset);
+
+    return () => {
+      viewport.removeEventListener('resize', syncKeyboardOffset);
+      viewport.removeEventListener('scroll', syncKeyboardOffset);
+      window.removeEventListener('orientationchange', syncKeyboardOffset);
+    };
+  }, [isComposerFocusedMobile, isRealMobileUser]);
 
   useEffect(() => {
     if (authenticated) {
@@ -2055,6 +2103,7 @@ export default function App() {
                 : '-translate-x-full'
               : 'translate-x-0'
           }`}
+          onClick={handleSidebarSurfaceClick}
           style={{ width: isMobileLayout ? overlaySidebarWidth : `${inlineSidebarWidth}px` }}
         >
           <div className="flex h-full flex-col">
@@ -2243,9 +2292,9 @@ export default function App() {
             <div className="flex min-w-0 items-center gap-2">
               {isMobileLayout && (
                 <button type="button" onClick={toggleSidebar}
-                  className="mobile-touch-target shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-white/10 hover:text-white"
+                  className="shrink-0 rounded-md p-1 text-slate-300 hover:bg-white/10 hover:text-white"
                   aria-label="Toggle sidebar"
-                ><Menu size={18} /></button>
+                ><Menu size={16} /></button>
               )}
               <div className="min-w-0">
                 <h1 className="truncate text-sm font-semibold text-white">{activeModeConfig.headerTitle}</h1>
@@ -2261,31 +2310,31 @@ export default function App() {
             </div>
 
             {/* Header actions — compact on mobile */}
-            <div className="flex shrink-0 items-center gap-1.5">
+            <div className={`flex shrink-0 items-center ${isMobileLayout ? 'gap-1' : 'gap-1.5'}`}>
               <button type="button" onClick={handleCycleAppearance}
-                className={`mobile-touch-target inline-flex items-center justify-center rounded-lg border border-white/15 text-slate-200 transition hover:bg-white/10 hover:text-white ${isMobileLayout ? 'h-7 w-7' : 'h-8 w-8'}`}
+                className={`inline-flex items-center justify-center border border-white/15 text-slate-200 transition hover:bg-white/10 hover:text-white ${isMobileLayout ? 'h-6 w-6 rounded-full' : 'mobile-touch-target h-8 w-8 rounded-full'}`}
                 aria-label={`Switch appearance (${appSettings.appearance})`} title={`Appearance: ${appSettings.appearance}`}
               >
-                {appSettings.appearance === 'light' ? <Sun size={isMobileLayout ? 13 : 15} /> : appSettings.appearance === 'dark' ? <Moon size={isMobileLayout ? 13 : 15} /> : <Monitor size={isMobileLayout ? 13 : 15} />}
+                {appSettings.appearance === 'light' ? <Sun size={isMobileLayout ? 12 : 15} /> : appSettings.appearance === 'dark' ? <Moon size={isMobileLayout ? 12 : 15} /> : <Monitor size={isMobileLayout ? 12 : 15} />}
               </button>
 
               {/* Language toggle — compact on mobile */}
-              <div className={`inline-flex items-center gap-0.5 rounded-xl border border-violet-300/25 bg-slate-900/85 p-0.5 ${isMobileLayout ? '' : 'gap-1 p-1'}`}>
+              <div className={`inline-flex border border-violet-300/25 bg-slate-900/85 ${isMobileLayout ? 'flex-col items-stretch gap-0.5 rounded-lg p-0.5' : 'items-center gap-1 rounded-xl p-1'}`}>
                 <button type="button" onClick={() => handleQuickLanguageChange('en')}
-                  className={`rounded-lg font-semibold transition ${isMobileLayout ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs'} ${appSettings.language === 'en' ? 'bg-violet-500/35 text-violet-50' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}
+                  className={`font-semibold transition ${isMobileLayout ? 'w-full rounded-md px-1.5 py-0 text-[10px] leading-4' : 'rounded-lg px-2.5 py-1 text-xs'} ${appSettings.language === 'en' ? 'bg-violet-500/35 text-violet-50' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}
                 >EN</button>
                 <button type="button" onClick={() => handleQuickLanguageChange('ur')}
-                  className={`rounded-lg font-semibold transition ${isMobileLayout ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs'} ${appSettings.language === 'ur' ? 'bg-violet-500/35 text-violet-50' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}
+                  className={`font-semibold transition ${isMobileLayout ? 'w-full rounded-md px-1.5 py-0 text-[10px] leading-4' : 'rounded-lg px-2.5 py-1 text-xs'} ${appSettings.language === 'ur' ? 'bg-violet-500/35 text-violet-50' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}
                 >اردو</button>
               </div>
 
               {/* Share — icon only on mobile */}
               <div ref={shareMenuRef} className="relative">
                 <button type="button" onClick={() => setShareMenuOpen((prev) => !prev)}
-                  className={`mobile-touch-target inline-flex items-center gap-1.5 rounded-lg border border-white/15 text-slate-200 transition hover:bg-white/10 ${isMobileLayout ? 'h-7 w-7 justify-center' : 'px-3 py-1.5 text-sm'}`}
+                  className={`inline-flex items-center gap-1.5 text-slate-200 transition hover:text-white ${isMobileLayout ? 'h-6 w-6 justify-center rounded-md' : 'mobile-touch-target rounded-lg px-3 py-1.5 text-sm'}`}
                   title="Share"
                 >
-                  <Share2 size={isMobileLayout ? 13 : 14} />
+                  <Share2 size={isMobileLayout ? 12 : 14} />
                   {!isMobileLayout && <span>Share</span>}
                 </button>
                 {shareMenuOpen && (
@@ -2301,7 +2350,7 @@ export default function App() {
               {/* Sign in button (guest) */}
               {inGuestMode && (
                 <button type="button" onClick={handleExitGuestMode}
-                  className={`mobile-touch-target inline-flex items-center gap-1 rounded-lg border border-cyan-300/35 text-cyan-100 hover:bg-cyan-500/10 transition ${isMobileLayout ? 'h-7 px-2 text-[11px]' : 'gap-2 px-3 py-1.5 text-sm'}`}
+                  className={`inline-flex items-center gap-1 border border-cyan-300/35 text-cyan-100 hover:bg-cyan-500/10 transition ${isMobileLayout ? 'h-6 rounded-md px-1.5 text-[10px]' : 'mobile-touch-target gap-2 rounded-lg px-3 py-1.5 text-sm'}`}
                 >Sign in</button>
               )}
             </div>
@@ -2457,7 +2506,14 @@ export default function App() {
           )}
 
           {/* ── COMPOSER ─────────────────────────────────────────────────── */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+          <div
+            className={`pointer-events-none inset-x-0 z-20 ${isRealMobileUser && isComposerFocusedMobile ? 'fixed bottom-0' : 'absolute bottom-0'}`}
+            style={{
+              paddingBottom: isRealMobileUser && isComposerFocusedMobile
+                ? `calc(env(safe-area-inset-bottom, 0px) + ${mobileKeyboardOffset}px)`
+                : 'env(safe-area-inset-bottom, 0px)',
+            }}
+          >
             <div className={`composer-shell pointer-events-auto bg-transparent ${isMobileLayout ? 'px-2 py-0.5' : 'px-4 py-1.5'}`}>
               <div className={`mx-auto w-full ${isMobileLayout ? 'max-w-full' : 'max-w-2xl'}`}>
                 {(chatError || shareError) && (
@@ -2484,6 +2540,12 @@ export default function App() {
                       ref={textAreaRef}
                       value={draft}
                       onChange={(e) => setDraft(e.target.value)}
+                      onFocus={() => { if (isRealMobileUser) setIsComposerFocusedMobile(true); }}
+                      onBlur={() => {
+                        if (!isRealMobileUser) return;
+                        setIsComposerFocusedMobile(false);
+                        setMobileKeyboardOffset(0);
+                      }}
                       onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
                       onPaste={handleComposerPaste}
                       placeholder={activeModeConfig.placeholder}
