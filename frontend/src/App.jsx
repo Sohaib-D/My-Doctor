@@ -135,6 +135,9 @@ const SETTINGS_TAB_PERSONALIZATION = 'personalization';
 const SETTINGS_TAB_MEDICAL = 'medical';
 const LOGIN_DESKTOP_POPUP_SESSION_KEY = 'pd_login_desktop_popup_dismissed';
 const PULL_REFRESH_TRIGGER_PX = 96;
+const MOBILE_DOUBLE_TAP_ZOOM_SCALE = 1.24;
+const DOUBLE_TAP_GESTURE_MS = 320;
+const DOUBLE_TAP_MOVE_TOLERANCE_PX = 24;
 const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   'txt','md','csv','json','xml','html','htm','log','rtf','yaml','yml','ini','conf',
 ]);
@@ -541,6 +544,9 @@ export default function App() {
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
   const [sessionMenuOpenId, setSessionMenuOpenId] = useState('');
   const [sessionActionBusyId, setSessionActionBusyId] = useState('');
+  const [sessionSelectionMode, setSessionSelectionMode] = useState(false);
+  const [selectedSessionIds, setSelectedSessionIds] = useState([]);
+  const [mobileDoubleTapZoomed, setMobileDoubleTapZoomed] = useState(false);
 
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState('');
@@ -786,6 +792,16 @@ export default function App() {
     return visibleSessions.filter((session) => (session.title || '').toLowerCase().includes(query));
   }, [chatSearch, sessions]);
 
+  useEffect(() => {
+    setSelectedSessionIds((prev) => prev.filter((sessionId) => sessions.some((entry) => entry.id === sessionId)));
+  }, [sessions]);
+
+  useEffect(() => {
+    if (!inGuestMode) return;
+    setSessionSelectionMode(false);
+    setSelectedSessionIds([]);
+  }, [inGuestMode]);
+
   useEffect(() => { applyAppearanceTheme(appSettings.appearance); }, [appSettings.appearance]);
   useEffect(() => { if (typeof window !== 'undefined') window.localStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(appSettings)); }, [appSettings]);
   useEffect(() => { if (chatLanguage !== appSettings.language) setChatLanguage(appSettings.language); }, [appSettings.language, chatLanguage]);
@@ -931,7 +947,7 @@ export default function App() {
     setCameraCaptureOpen(false); setCameraCaptureBusy(false); setCameraCaptureError(''); setCameraFacingMode('environment');
     stopCameraCaptureStream();
     setActiveMode(DEFAULT_CHAT_MODE); setChatError(''); setShowScrollToLatest(false);
-    setShareError(''); setSessionMenuOpenId(''); setSessionActionBusyId('');
+    setShareError(''); setSessionMenuOpenId(''); setSessionActionBusyId(''); setSessionSelectionMode(false); setSelectedSessionIds([]);
     setIsSidebarOpen(isMobileLayout ? false : !isRealMobileDevice());
     setSidebarWidth(SIDEBAR_OPEN_WIDTH); setSidebarResizing(false);
     setSearchChatsOpen(false); setChatSearch(''); setModeMenuOpen(false);
@@ -1031,7 +1047,8 @@ export default function App() {
     finally { setLoadingHistory(false); }
   }, [token]);
 
-  const refreshSessions = useCallback(async (preferredSessionId = '', authToken = token) => {
+  const refreshSessions = useCallback(async (preferredSessionId = '', authToken = token, options = {}) => {
+    const autoSelect = options?.autoSelect !== false;
     if (!authToken) { setSessions([]); return ''; }
     const payload = await api.sessions(authToken);
     const nextSessions = payload?.sessions || [];
@@ -1040,6 +1057,7 @@ export default function App() {
     if (preferredSessionId && nextSessions.some((entry) => entry.id === preferredSessionId)) {
       setActiveSessionId(preferredSessionId); return preferredSessionId;
     }
+    if (!autoSelect) { setActiveSessionId(''); return ''; }
     const first = nextSessions[0].id;
     setActiveSessionId(first);
     return first;
@@ -1053,10 +1071,10 @@ export default function App() {
         const me = await api.me(token);
         if (cancelled) return;
         setUser(me); localStorage.setItem(USER_KEY, JSON.stringify(me));
-        const sessionId = await refreshSessions('', token);
+        await refreshSessions('', token, { autoSelect: false });
         if (cancelled) return;
-        if (sessionId) await loadHistory(sessionId, token);
-        else setMessages([]);
+        setActiveSessionId('');
+        setMessages([]);
       } catch (error) {
         if (!cancelled) { setChatError(error.message); clearLocalSession(); }
       }
@@ -1147,6 +1165,65 @@ export default function App() {
       root.classList.remove('real-mobile-device');
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || shareRouteId || !isRealMobileUser) {
+      setMobileDoubleTapZoomed(false);
+      return undefined;
+    }
+
+    let lastTapAt = 0;
+    let lastTapX = 0;
+    let lastTapY = 0;
+
+    const onTouchEnd = (event) => {
+      if (event.changedTouches.length !== 1) {
+        lastTapAt = 0;
+        return;
+      }
+      const target = event.target;
+      if (
+        target instanceof Element
+        && target.closest('button, a, input, textarea, select, label, video, [role="button"], [data-ignore-double-tap-zoom]')
+      ) {
+        return;
+      }
+
+      const touch = event.changedTouches[0];
+      const now = Date.now();
+      const delta = now - lastTapAt;
+      const distance = Math.hypot(touch.clientX - lastTapX, touch.clientY - lastTapY);
+      if (delta > 0 && delta <= DOUBLE_TAP_GESTURE_MS && distance <= DOUBLE_TAP_MOVE_TOLERANCE_PX) {
+        setMobileDoubleTapZoomed((prev) => !prev);
+        lastTapAt = 0;
+        return;
+      }
+      lastTapAt = now;
+      lastTapX = touch.clientX;
+      lastTapY = touch.clientY;
+    };
+
+    window.addEventListener('touchend', onTouchEnd, { passive: true });
+    return () => {
+      window.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [isRealMobileUser, shareRouteId]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const root = document.documentElement;
+    if (!isRealMobileUser || !mobileDoubleTapZoomed) {
+      root.classList.remove('mobile-doubletap-zoom');
+      root.style.removeProperty('--pd-mobile-zoom-scale');
+      return undefined;
+    }
+    root.classList.add('mobile-doubletap-zoom');
+    root.style.setProperty('--pd-mobile-zoom-scale', String(MOBILE_DOUBLE_TAP_ZOOM_SCALE));
+    return () => {
+      root.classList.remove('mobile-doubletap-zoom');
+      root.style.removeProperty('--pd-mobile-zoom-scale');
+    };
+  }, [isRealMobileUser, mobileDoubleTapZoomed]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1689,7 +1766,7 @@ export default function App() {
     setSessions([]); setActiveSessionId(''); setMessages([]); setNewChatInterfaceVersion(0);
     setDraft(''); setDraftsByMode({ chat: '', drug: '', research: '', who: '' });
     setAttachedImages([]); setComposerAttachmentMenuOpen(false); setActiveMode(DEFAULT_CHAT_MODE);
-    setChatError(''); setShareError(''); setSessionMenuOpenId(''); setSessionActionBusyId('');
+    setChatError(''); setShareError(''); setSessionMenuOpenId(''); setSessionActionBusyId(''); setSessionSelectionMode(false); setSelectedSessionIds([]);
     setModeMenuOpen(false); setReviewModalOpen(false); setReviewText(''); setReviewError(''); setReviewSuccess(''); setReviewSending(false);
     setSettingsOpen(false); setSettingsTab(SETTINGS_TAB_GENERAL);
     setPreferencesBusy(false); setPreferencesSaving(false); setPreferencesError(''); setPreferencesInfo('');
@@ -1704,14 +1781,76 @@ export default function App() {
 
   const invalidatePendingSend = useCallback(() => { sendSequenceRef.current += 1; conversationResetRef.current += 1; setSending(false); }, []);
 
+  const handleToggleSessionSelectionMode = useCallback(() => {
+    setSessionMenuOpenId('');
+    setSessionSelectionMode((prev) => {
+      const next = !prev;
+      if (!next) setSelectedSessionIds([]);
+      return next;
+    });
+  }, []);
+
+  const handleToggleSessionSelection = useCallback((sessionId) => {
+    const normalized = String(sessionId || '').trim();
+    if (!normalized) return;
+    setSelectedSessionIds((prev) => (
+      prev.includes(normalized)
+        ? prev.filter((entry) => entry !== normalized)
+        : [...prev, normalized]
+    ));
+  }, []);
+
+  const deleteSessionBatch = useCallback(async (sessionIds, { all = false } = {}) => {
+    if (!token || inGuestMode) return;
+    const uniqueIds = Array.from(new Set((sessionIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
+    if (!uniqueIds.length) return;
+
+    const confirmationMessage = all
+      ? `Delete all ${uniqueIds.length} saved chats? This cannot be undone.`
+      : `Delete ${uniqueIds.length} selected chat${uniqueIds.length === 1 ? '' : 's'}? This cannot be undone.`;
+    if (!window.confirm(confirmationMessage)) return;
+
+    setSessionActionBusyId('__bulk__');
+    setChatError('');
+    try {
+      for (const sessionId of uniqueIds) {
+        await api.deleteChat(sessionId, token);
+      }
+      const deletedSet = new Set(uniqueIds);
+      const preferredAfterDelete = activeSessionId && !deletedSet.has(activeSessionId) ? activeSessionId : '';
+      await refreshSessions(preferredAfterDelete, token, { autoSelect: false });
+      if (!preferredAfterDelete) {
+        setActiveSessionId('');
+        setMessages([]);
+      }
+      setSessionSelectionMode(false);
+      setSelectedSessionIds([]);
+      setSessionMenuOpenId('');
+    } catch (error) {
+      setChatError(error?.message || 'Unable to delete chats right now. Please try again.');
+    } finally {
+      setSessionActionBusyId('');
+    }
+  }, [activeSessionId, inGuestMode, refreshSessions, token]);
+
+  const handleDeleteSelectedSessions = useCallback(async () => {
+    await deleteSessionBatch(selectedSessionIds, { all: false });
+  }, [deleteSessionBatch, selectedSessionIds]);
+
+  const handleDeleteAllSessions = useCallback(async () => {
+    await deleteSessionBatch(sessions.map((session) => session.id), { all: true });
+  }, [deleteSessionBatch, sessions]);
+
   const handleSelectSession = useCallback(async (sessionId) => {
     invalidatePendingSend(); setSessionMenuOpenId(''); setActiveSessionId(sessionId);
+    setSessionSelectionMode(false); setSelectedSessionIds([]);
     await loadHistory(sessionId);
     if (isMobileLayout) closeSidebar();
   }, [closeSidebar, invalidatePendingSend, isMobileLayout, loadHistory]);
 
   const handleNewChat = useCallback(() => {
     invalidatePendingSend(); setSessionMenuOpenId(''); setActiveSessionId(''); setMessages([]);
+    setSessionSelectionMode(false); setSelectedSessionIds([]);
     setDraft(''); setAttachedImages([]); setComposerAttachmentMenuOpen(false);
     setDraftsByMode({ chat: '', drug: '', research: '', who: '' });
     setChatError(''); setShareError(''); setShareMenuOpen(false);
@@ -2063,7 +2202,7 @@ export default function App() {
   const typingIndicatorLogoGlow = 'drop-shadow(0 2px 6px rgba(16,185,129,0.35))';
 
   return (
-    <div className="app-shell relative flex min-h-0 flex-col overflow-hidden bg-slatebg text-slate-100">
+    <div className={`app-shell relative flex min-h-0 flex-col ${isRealMobileUser ? 'overflow-auto' : 'overflow-hidden'} bg-slatebg text-slate-100`}>
       <style>{`
         .message-rich { font-size: 14px; line-height: 1.7; color: #e2e8f0; }
         .message-rich strong { color: #a5f3fc; font-weight: 700; }
@@ -2083,7 +2222,7 @@ export default function App() {
       `}</style>
       <MedicalBackground opacity={0.15} />
 
-      <div className="relative z-10 flex min-h-0 flex-1 overflow-hidden">
+      <div className={`relative z-10 flex min-h-0 flex-1 ${isRealMobileUser ? 'overflow-auto' : 'overflow-hidden'}`}>
         {/* Mobile overlay backdrop */}
         {isMobileLayout && isSidebarOpen && (
           <button
@@ -2196,15 +2335,75 @@ export default function App() {
             {/* Sessions list */}
             {isSidebarOpen && (
               <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-2">
+                {!inGuestMode && sessions.length > 0 && (
+                  <div className="mb-2 flex flex-wrap items-center gap-1.5 px-1">
+                    <button
+                      type="button"
+                      onClick={handleToggleSessionSelectionMode}
+                      disabled={sessionActionBusyId === '__bulk__'}
+                      className="mobile-touch-target inline-flex items-center gap-1.5 rounded-md border border-white/15 px-2 py-1 text-[11px] text-slate-200 hover:bg-white/10 disabled:opacity-60"
+                    >
+                      {sessionSelectionMode ? 'Cancel' : 'Select chats'}
+                    </button>
+                    {sessionSelectionMode && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={handleDeleteSelectedSessions}
+                          disabled={sessionActionBusyId === '__bulk__' || selectedSessionIds.length === 0}
+                          className="mobile-touch-target inline-flex items-center gap-1.5 rounded-md border border-red-400/40 px-2 py-1 text-[11px] text-red-200 hover:bg-red-500/20 disabled:opacity-60"
+                        >
+                          {sessionActionBusyId === '__bulk__' ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                          Delete selected ({selectedSessionIds.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDeleteAllSessions}
+                          disabled={sessionActionBusyId === '__bulk__'}
+                          className="mobile-touch-target inline-flex items-center gap-1.5 rounded-md border border-red-500/50 px-2 py-1 text-[11px] text-red-200 hover:bg-red-500/20 disabled:opacity-60"
+                        >
+                          Delete all
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
                 {filteredSessions.map((session) => (
                   <div key={session.id} className="group relative mb-1">
-                    <button type="button" onClick={() => handleSelectSession(session.id)}
-                      className={`w-full rounded-lg px-3 py-2 pr-10 text-left transition ${activeSessionId === session.id ? 'bg-emerald-500/20 text-emerald-100' : 'hover:bg-white/5'}`}
+                    {sessionSelectionMode && !inGuestMode && (
+                      <label className="absolute left-2 top-1/2 z-10 -translate-y-1/2">
+                        <input
+                          type="checkbox"
+                          checked={selectedSessionIds.includes(session.id)}
+                          onChange={() => handleToggleSessionSelection(session.id)}
+                          onClick={(event) => event.stopPropagation()}
+                          className="h-4 w-4 rounded border-white/20 bg-slate-900 text-red-400"
+                        />
+                      </label>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (sessionSelectionMode && !inGuestMode) {
+                          handleToggleSessionSelection(session.id);
+                          return;
+                        }
+                        handleSelectSession(session.id);
+                      }}
+                      className={`w-full rounded-lg px-3 py-2 text-left transition ${
+                        sessionSelectionMode && !inGuestMode ? 'pl-9 pr-3' : 'pr-10'
+                      } ${
+                        selectedSessionIds.includes(session.id)
+                          ? 'border border-red-500/40 bg-red-500/15 text-red-100'
+                          : activeSessionId === session.id
+                            ? 'bg-emerald-500/20 text-emerald-100'
+                            : 'hover:bg-white/5'
+                      }`}
                     >
                       <p className="truncate text-sm font-medium">{session.title}</p>
                       <p className="mt-1 text-xs text-slate-400">{formatSessionDate(session.last_message_at || session.created_at)}</p>
                     </button>
-                    {!inGuestMode && (
+                    {!inGuestMode && !sessionSelectionMode && (
                       <div data-session-menu className="absolute right-1 top-1">
                         <button type="button" onClick={(e) => { e.stopPropagation(); handleToggleSessionMenu(session.id); }} disabled={sessionActionBusyId === session.id}
                           className={`inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-300 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 ${sessionMenuOpenId === session.id ? 'bg-white/10 text-white opacity-100' : 'opacity-100 md:opacity-0 md:group-hover:opacity-100'}`}
@@ -2284,7 +2483,7 @@ export default function App() {
 
         {/* ── MAIN CONTENT ─────────────────────────────────────────────────── */}
         <main
-          className="chat-main relative flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden transition-[margin-left] duration-300"
+          className={`chat-main relative flex min-h-0 min-w-0 flex-1 flex-col ${isRealMobileUser ? 'overflow-x-auto' : 'overflow-x-hidden'} transition-[margin-left] duration-300`}
           style={{ marginLeft: `${mainContentOffset}px` }}
         >
           {/* Header */}
@@ -2360,7 +2559,7 @@ export default function App() {
           <section
             ref={chatScrollRef}
             onScroll={handleChatScroll}
-            className={`chat-scroll-area min-h-0 flex-1 overflow-y-auto overflow-x-hidden ${
+            className={`chat-scroll-area min-h-0 flex-1 overflow-y-auto ${isRealMobileUser ? 'overflow-x-auto' : 'overflow-x-hidden'} ${
               isMobileLayout
                 ? isEmptyChatState ? 'px-3 py-2 pb-32' : 'px-3 py-2 pb-32'
                 : isEmptyChatState ? 'px-4 py-3 pb-24' : 'px-4 py-5 pb-32'

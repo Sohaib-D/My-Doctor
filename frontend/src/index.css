@@ -531,6 +531,27 @@ html.real-mobile-device .chat-scroll-area {
   touch-action: pan-x pan-y pinch-zoom;
 }
 
+/* Double-tap zoom toggle for real mobile users (normal mode and desktop-site mode). */
+html.real-mobile-device.mobile-doubletap-zoom,
+html.real-mobile-device.mobile-doubletap-zoom body,
+html.real-mobile-device.mobile-doubletap-zoom #root {
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+}
+
+html.real-mobile-device.mobile-doubletap-zoom #root {
+  zoom: var(--pd-mobile-zoom-scale, 1.24);
+}
+
+@supports not (zoom: 1) {
+  html.real-mobile-device.mobile-doubletap-zoom #root {
+    transform: scale(var(--pd-mobile-zoom-scale, 1.24));
+    transform-origin: top left;
+    width: calc(100% / var(--pd-mobile-zoom-scale, 1.24));
+    min-height: calc(100dvh / var(--pd-mobile-zoom-scale, 1.24));
+  }
+}
+
 /* ── Focus-visible outline (accessibility) ───────────────────────────────── */
 :focus-visible {
   outline: 2px solid rgba(34, 197, 94, 0.6);

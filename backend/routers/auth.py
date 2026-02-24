@@ -29,6 +29,8 @@ except ImportError:  # pragma: no cover
 
 router = APIRouter(tags=["auth"])
 OTP_EXPIRY_MINUTES = 15
+PERSISTENT_LOGIN_DAYS = 3
+PERSISTENT_LOGIN_MINUTES = PERSISTENT_LOGIN_DAYS * 24 * 60
 
 
 def _normalize_email(value: str) -> str:
@@ -93,7 +95,7 @@ def _resolve_google_redirect_uri(request: Request) -> str:
 
 
 def _auth_payload(user: User) -> dict:
-    token = create_access_token(str(user.id))
+    token = create_access_token(str(user.id), expires_minutes=PERSISTENT_LOGIN_MINUTES)
     return {
         "status": "authenticated",
         "access_token": token,
