@@ -28,6 +28,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Stethoscope,
+  RefreshCw,
   Sun,
   Moon,
   Monitor,
@@ -132,6 +133,8 @@ const APPEARANCE_CYCLE = ['dark', 'light', 'system'];
 const SETTINGS_TAB_GENERAL = 'general';
 const SETTINGS_TAB_PERSONALIZATION = 'personalization';
 const SETTINGS_TAB_MEDICAL = 'medical';
+const LOGIN_DESKTOP_POPUP_SESSION_KEY = 'pd_login_desktop_popup_dismissed';
+const PULL_REFRESH_TRIGGER_PX = 132;
 const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   'txt','md','csv','json','xml','html','htm','log','rtf','yaml','yml','ini','conf',
 ]);
@@ -499,6 +502,7 @@ export default function App() {
   const [authError, setAuthError] = useState('');
   const [authInfo, setAuthInfo] = useState('');
   const [authLastEmail, setAuthLastEmail] = useState(readStoredAuthEmail);
+  const [showLoginDesktopPopup, setShowLoginDesktopPopup] = useState(false);
   const [guestMode, setGuestMode] = useState(false);
   const [resendBusy, setResendBusy] = useState(false);
   const [showResendVerification, setShowResendVerification] = useState(false);
@@ -554,6 +558,7 @@ export default function App() {
   const [cameraCaptureOpen, setCameraCaptureOpen] = useState(false);
   const [cameraCaptureBusy, setCameraCaptureBusy] = useState(false);
   const [cameraCaptureError, setCameraCaptureError] = useState('');
+  const [cameraFacingMode, setCameraFacingMode] = useState('environment');
   const [dictationSupported, setDictationSupported] = useState(false);
   const [dictationState, setDictationState] = useState('idle');
   const [voices, setVoices] = useState([]);
@@ -806,7 +811,19 @@ export default function App() {
   useEffect(() => () => { if (reviewCloseTimerRef.current) { window.clearTimeout(reviewCloseTimerRef.current); reviewCloseTimerRef.current = null; } }, []);
 
   const clearSilenceTimer = useCallback(() => { if (silenceTimerRef.current) { window.clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; } }, []);
-  const stopSpeaking = useCallback(() => { if ('speechSynthesis' in window) window.speechSynthesis.cancel(); utteranceRef.current = null; setSpeakingMessageId(''); }, []);
+  const stopSpeaking = useCallback(() => {
+    if ('speechSynthesis' in window) {
+      const synthesis = window.speechSynthesis;
+      try { synthesis.cancel(); } catch {}
+      if (synthesis.paused) {
+        try { synthesis.resume(); } catch {}
+      }
+      // Some mobile engines require a second cancel pass to clear pending speech immediately.
+      try { synthesis.cancel(); } catch {}
+    }
+    utteranceRef.current = null;
+    setSpeakingMessageId('');
+  }, []);
   const stopDictation = useCallback((manual = true) => {
     clearSilenceTimer();
     const recognition = recognitionRef.current;
@@ -823,6 +840,37 @@ export default function App() {
     if (cameraVideoRef.current) cameraVideoRef.current.srcObject = null;
   }, []);
 
+  const attachCameraStreamToVideo = useCallback((stream) => {
+    window.requestAnimationFrame(() => {
+      const videoElement = cameraVideoRef.current;
+      if (!videoElement) return;
+      videoElement.srcObject = stream;
+      const maybePlay = videoElement.play?.();
+      if (maybePlay && typeof maybePlay.catch === 'function') maybePlay.catch(() => {});
+    });
+  }, []);
+
+  const createCameraCaptureStream = useCallback(async (preferredFacingMode = 'environment') => {
+    const attempted = new Set();
+    const modesToTry = [preferredFacingMode, preferredFacingMode === 'environment' ? 'user' : 'environment', null];
+    let lastError = null;
+    for (const mode of modesToTry) {
+      const key = mode || 'any';
+      if (attempted.has(key)) continue;
+      attempted.add(key);
+      try {
+        const constraints = mode
+          ? { video: { facingMode: { ideal: mode } }, audio: false }
+          : { video: true, audio: false };
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        return { stream, facingMode: mode || preferredFacingMode };
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError || new Error('camera-open-failed');
+  }, []);
+
   const closeCameraCapture = useCallback(() => {
     setCameraCaptureOpen(false); setCameraCaptureBusy(false); setCameraCaptureError('');
     stopCameraCaptureStream();
@@ -835,22 +883,39 @@ export default function App() {
       if (captureImageInputRef.current) captureImageInputRef.current.click();
       return;
     }
+    setCameraCaptureBusy(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+      stopCameraCaptureStream();
+      const { stream, facingMode } = await createCameraCaptureStream(cameraFacingMode);
       cameraStreamRef.current = stream;
+      setCameraFacingMode(facingMode);
       setCameraCaptureOpen(true);
-      window.requestAnimationFrame(() => {
-        const videoElement = cameraVideoRef.current;
-        if (!videoElement) return;
-        videoElement.srcObject = stream;
-        const maybePlay = videoElement.play?.();
-        if (maybePlay && typeof maybePlay.catch === 'function') maybePlay.catch(() => {});
-      });
+      attachCameraStreamToVideo(stream);
     } catch {
       if (captureImageInputRef.current) captureImageInputRef.current.click();
       else setChatError('Unable to access camera. Check camera permissions and try again.');
+    } finally {
+      setCameraCaptureBusy(false);
     }
-  }, []);
+  }, [attachCameraStreamToVideo, cameraFacingMode, createCameraCaptureStream, stopCameraCaptureStream]);
+
+  const handleSwitchCamera = useCallback(async () => {
+    if (cameraCaptureBusy || !navigator.mediaDevices?.getUserMedia) return;
+    const nextFacingMode = cameraFacingMode === 'environment' ? 'user' : 'environment';
+    setCameraCaptureBusy(true);
+    setCameraCaptureError('');
+    try {
+      stopCameraCaptureStream();
+      const { stream, facingMode } = await createCameraCaptureStream(nextFacingMode);
+      cameraStreamRef.current = stream;
+      setCameraFacingMode(facingMode);
+      attachCameraStreamToVideo(stream);
+    } catch {
+      setCameraCaptureError('Unable to switch camera. Check camera permissions and try again.');
+    } finally {
+      setCameraCaptureBusy(false);
+    }
+  }, [attachCameraStreamToVideo, cameraCaptureBusy, cameraFacingMode, createCameraCaptureStream, stopCameraCaptureStream]);
 
   useEffect(() => () => { stopCameraCaptureStream(); }, [stopCameraCaptureStream]);
 
@@ -860,7 +925,7 @@ export default function App() {
     setSessions([]); setActiveSessionId(''); setMessages([]); setNewChatInterfaceVersion(0);
     setDraft(''); setDraftsByMode({ chat: '', drug: '', research: '', who: '' });
     setAttachedImages([]); setComposerAttachmentMenuOpen(false);
-    setCameraCaptureOpen(false); setCameraCaptureBusy(false); setCameraCaptureError('');
+    setCameraCaptureOpen(false); setCameraCaptureBusy(false); setCameraCaptureError(''); setCameraFacingMode('environment');
     stopCameraCaptureStream();
     setActiveMode(DEFAULT_CHAT_MODE); setChatError(''); setShowScrollToLatest(false);
     setShareError(''); setSessionMenuOpenId(''); setSessionActionBusyId('');
@@ -1073,6 +1138,103 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (authenticated || inGuestMode || shareRouteId || !isRealMobileDevice()) {
+      setShowLoginDesktopPopup(false);
+      return;
+    }
+    const dismissed = window.sessionStorage.getItem(LOGIN_DESKTOP_POPUP_SESSION_KEY) === '1';
+    setShowLoginDesktopPopup(!dismissed);
+  }, [authenticated, inGuestMode, shareRouteId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    if (shareRouteId || authenticated || inGuestMode || !isRealMobileDevice()) return undefined;
+
+    let tracking = false;
+    let startY = 0;
+    let maxPull = 0;
+
+    const onTouchStart = (event) => {
+      if (event.touches.length !== 1) { tracking = false; return; }
+      const scrollTop = Math.max(window.scrollY || 0, document.documentElement.scrollTop || 0, document.body.scrollTop || 0);
+      if (scrollTop > 0) { tracking = false; return; }
+      tracking = true;
+      startY = event.touches[0].clientY;
+      maxPull = 0;
+    };
+
+    const onTouchMove = (event) => {
+      if (!tracking || event.touches.length !== 1) return;
+      const delta = event.touches[0].clientY - startY;
+      if (delta <= 0) { tracking = false; maxPull = 0; return; }
+      maxPull = Math.max(maxPull, delta);
+    };
+
+    const onTouchEnd = () => {
+      if (tracking && maxPull >= PULL_REFRESH_TRIGGER_PX) {
+        window.location.reload();
+      }
+      tracking = false;
+      maxPull = 0;
+    };
+
+    window.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchmove', onTouchMove, { passive: true });
+    window.addEventListener('touchend', onTouchEnd, { passive: true });
+
+    return () => {
+      window.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [authenticated, inGuestMode, shareRouteId]);
+
+  useEffect(() => {
+    if (!authenticated || shareRouteId || !isRealMobileDevice()) return undefined;
+    const scrollElement = chatScrollRef.current;
+    if (!scrollElement) return undefined;
+
+    let tracking = false;
+    let startY = 0;
+    let maxPull = 0;
+
+    const onTouchStart = (event) => {
+      if (event.touches.length !== 1) { tracking = false; return; }
+      if (scrollElement.scrollTop > 0) { tracking = false; return; }
+      tracking = true;
+      startY = event.touches[0].clientY;
+      maxPull = 0;
+    };
+
+    const onTouchMove = (event) => {
+      if (!tracking || event.touches.length !== 1) return;
+      if (scrollElement.scrollTop > 0) { tracking = false; maxPull = 0; return; }
+      const delta = event.touches[0].clientY - startY;
+      if (delta <= 0) { tracking = false; maxPull = 0; return; }
+      maxPull = Math.max(maxPull, delta);
+    };
+
+    const onTouchEnd = () => {
+      if (tracking && maxPull >= PULL_REFRESH_TRIGGER_PX) {
+        window.location.reload();
+      }
+      tracking = false;
+      maxPull = 0;
+    };
+
+    scrollElement.addEventListener('touchstart', onTouchStart, { passive: true });
+    scrollElement.addEventListener('touchmove', onTouchMove, { passive: true });
+    scrollElement.addEventListener('touchend', onTouchEnd, { passive: true });
+
+    return () => {
+      scrollElement.removeEventListener('touchstart', onTouchStart);
+      scrollElement.removeEventListener('touchmove', onTouchMove);
+      scrollElement.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [authenticated, shareRouteId, activeSessionId, newChatInterfaceVersion]);
+
+  useEffect(() => {
     if (authenticated) {
       // Keep sidebar collapsed on real mobile hardware even in desktop site mode
       setIsSidebarOpen(!isMobileLayout && !isRealMobileDevice());
@@ -1110,7 +1272,14 @@ export default function App() {
     if (!('speechSynthesis' in window)) { setChatError('Text-to-speech is not supported in this browser.'); return; }
     const speechText = buildSpokenExplanation(message);
     if (!speechText.trim()) return;
-    stopSpeaking();
+    const targetMessageId = String(message?.id || '');
+    const synthesis = window.speechSynthesis;
+    try {
+      if (synthesis.speaking || synthesis.pending || utteranceRef.current) synthesis.cancel();
+      if (synthesis.paused) synthesis.resume();
+    } catch {}
+    utteranceRef.current = null;
+    setSpeakingMessageId('');
     const utterance = new SpeechSynthesisUtterance(speechText);
     const speechVariant = resolveSpeechVariant(speechText, appSettings.language);
     const configuredLang = appSettings.language === 'ur' ? 'ur-PK' : 'en-US';
@@ -1119,17 +1288,21 @@ export default function App() {
       : configuredLang;
     utterance.lang = lang; utterance.rate = lang.startsWith('ur') ? 0.9 : 0.95;
     utterance.pitch = lang.startsWith('ur') ? 1.06 : 1.08; utterance.volume = 1.0;
-    const selectedVoice = selectFemaleVoice(voices, lang, speechText);
+    const liveVoices = window.speechSynthesis.getVoices();
+    const selectedVoice = selectFemaleVoice((liveVoices && liveVoices.length) ? liveVoices : voices, lang, speechText);
     if (selectedVoice) utterance.voice = selectedVoice;
     utterance.onend = () => { if (utteranceRef.current === utterance) { utteranceRef.current = null; setSpeakingMessageId(''); } };
     utterance.onerror = () => { if (utteranceRef.current === utterance) { utteranceRef.current = null; setSpeakingMessageId(''); } };
+    utterance.__pdMessageId = targetMessageId;
     utteranceRef.current = utterance;
-    setSpeakingMessageId(message.id);
-    window.speechSynthesis.speak(utterance);
-  }, [appSettings.language, appSettings.voice_auto_detect, stopSpeaking, voices]);
+    setSpeakingMessageId(targetMessageId);
+    synthesis.speak(utterance);
+  }, [appSettings.language, appSettings.voice_auto_detect, voices]);
 
   const toggleMessageSpeech = useCallback((message) => {
-    if (speakingMessageId === message.id) { stopSpeaking(); return; }
+    const targetMessageId = String(message?.id || '');
+    const activeMessageId = String(utteranceRef.current?.__pdMessageId || '');
+    if (speakingMessageId === targetMessageId || activeMessageId === targetMessageId) { stopSpeaking(); return; }
     speakMessage(message);
   }, [speakMessage, speakingMessageId, stopSpeaking]);
 
@@ -1224,9 +1397,9 @@ export default function App() {
     const normalizedEmail = (email || '').trim().toLowerCase();
     try {
       if (!EMAIL_PATTERN.test(normalizedEmail)) throw new Error('Please enter a valid email address.');
-      const payload = await api.requestPasswordReset({ email: normalizedEmail });
-      saveStoredAuthEmail(normalizedEmail); setAuthLastEmail(normalizedEmail);
-      setAuthInfo(payload?.message || 'Password reset OTP sent to your email.');
+      await api.requestPasswordReset({ email: normalizedEmail });
+      saveStoredAuthEmail(normalizedEmail);
+      setAuthInfo('OTP sent successfuly!\nCheck your spam folder!');
       return true;
     } catch (error) { setAuthError(toAuthMessage(error)); return false; }
     finally { setAuthBusy(false); }
@@ -1282,6 +1455,11 @@ export default function App() {
   const handleAuthModeChange = useCallback((mode) => {
     setAuthMode(mode); setAuthBusy(false); setAuthError(''); setAuthInfo('');
     setResendBusy(false); setShowResendVerification(false); setPendingVerificationLogin(createPendingVerificationLogin());
+  }, []);
+
+  const dismissLoginDesktopPopup = useCallback(() => {
+    setShowLoginDesktopPopup(false);
+    try { window.sessionStorage.setItem(LOGIN_DESKTOP_POPUP_SESSION_KEY, '1'); } catch {}
   }, []);
 
   const loadMedicalProfile = useCallback(async (authToken = token) => {
@@ -1776,14 +1954,49 @@ export default function App() {
 
   if (!authenticated && !inGuestMode) {
     return (
-      <AuthCard
-        mode={authMode} busy={authBusy} error={authError} info={authInfo} initialEmail={authLastEmail}
-        showResendVerification={showResendVerification} resendBusy={resendBusy}
-        onModeChange={handleAuthModeChange} onEmailLogin={handleEmailLogin} onEmailSignup={handleEmailSignup}
-        onRequestPasswordReset={handleRequestPasswordReset} onResetPassword={handleResetPassword}
-        onGoogleLogin={handleGoogleLogin} onResendVerification={handleResendVerification}
-        onContinueAsGuest={handleContinueAsGuest}
-      />
+      <>
+        <AuthCard
+          mode={authMode} busy={authBusy} error={authError} info={authInfo} initialEmail={authLastEmail}
+          showResendVerification={showResendVerification} resendBusy={resendBusy}
+          onModeChange={handleAuthModeChange} onEmailLogin={handleEmailLogin} onEmailSignup={handleEmailSignup}
+          onRequestPasswordReset={handleRequestPasswordReset} onResetPassword={handleResetPassword}
+          onGoogleLogin={handleGoogleLogin} onResendVerification={handleResendVerification}
+          onContinueAsGuest={handleContinueAsGuest}
+        />
+        {showLoginDesktopPopup && (
+          <div className="fixed inset-0 z-[120] flex items-end justify-center p-3 sm:items-center sm:p-4">
+            <button
+              type="button"
+              onClick={dismissLoginDesktopPopup}
+              className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+              aria-label="Close desktop recommendation"
+            />
+            <div className="relative z-10 w-full max-w-md rounded-2xl border border-cyan-300/25 bg-slate-900/95 p-4 shadow-chat sm:p-5">
+              <p className="text-xs uppercase tracking-wider text-cyan-200/90">Recommended</p>
+              <div className="mt-2 flex items-start gap-3">
+                <div className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-lg border border-cyan-300/30 bg-cyan-500/10 text-cyan-200">
+                  <Monitor size={16} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-sm font-semibold text-white">Use Desktop site for a better experience</h2>
+                  <p className="mt-1 text-xs leading-5 text-slate-300">
+                    On Android and iPhone browsers, opening this app in Desktop site mode gives a more stable layout and better camera controls.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={dismissLoginDesktopPopup}
+                  className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-emerald-400"
+                >
+                  Continue
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
     );
   }
 
@@ -2028,11 +2241,12 @@ export default function App() {
           {/* Header */}
           <header className={`shrink-0 flex items-center justify-between border-b border-white/10 bg-slate-900/80 backdrop-blur ${isMobileLayout ? 'mobile-header px-3 py-2' : 'px-4 py-3'}`}>
             <div className="flex min-w-0 items-center gap-2">
-              {/* Mobile: hamburger always visible */}
-              <button type="button" onClick={toggleSidebar}
-                className="mobile-touch-target shrink-0 rounded-lg p-2 text-slate-300 hover:bg-white/10 hover:text-white"
-                aria-label="Toggle sidebar"
-              ><Menu size={20} /></button>
+              {isMobileLayout && (
+                <button type="button" onClick={toggleSidebar}
+                  className="mobile-touch-target shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-white/10 hover:text-white"
+                  aria-label="Toggle sidebar"
+                ><Menu size={18} /></button>
+              )}
               <div className="min-w-0">
                 <h1 className="truncate text-sm font-semibold text-white">{activeModeConfig.headerTitle}</h1>
                 {!isMobileLayout && (
@@ -2049,29 +2263,29 @@ export default function App() {
             {/* Header actions — compact on mobile */}
             <div className="flex shrink-0 items-center gap-1.5">
               <button type="button" onClick={handleCycleAppearance}
-                className="mobile-touch-target inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/15 text-slate-200 transition hover:bg-white/10 hover:text-white"
+                className={`mobile-touch-target inline-flex items-center justify-center rounded-lg border border-white/15 text-slate-200 transition hover:bg-white/10 hover:text-white ${isMobileLayout ? 'h-7 w-7' : 'h-8 w-8'}`}
                 aria-label={`Switch appearance (${appSettings.appearance})`} title={`Appearance: ${appSettings.appearance}`}
               >
-                {appSettings.appearance === 'light' ? <Sun size={15} /> : appSettings.appearance === 'dark' ? <Moon size={15} /> : <Monitor size={15} />}
+                {appSettings.appearance === 'light' ? <Sun size={isMobileLayout ? 13 : 15} /> : appSettings.appearance === 'dark' ? <Moon size={isMobileLayout ? 13 : 15} /> : <Monitor size={isMobileLayout ? 13 : 15} />}
               </button>
 
               {/* Language toggle — compact on mobile */}
               <div className={`inline-flex items-center gap-0.5 rounded-xl border border-violet-300/25 bg-slate-900/85 p-0.5 ${isMobileLayout ? '' : 'gap-1 p-1'}`}>
                 <button type="button" onClick={() => handleQuickLanguageChange('en')}
-                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${appSettings.language === 'en' ? 'bg-violet-500/35 text-violet-50' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}
+                  className={`rounded-lg font-semibold transition ${isMobileLayout ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs'} ${appSettings.language === 'en' ? 'bg-violet-500/35 text-violet-50' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}
                 >EN</button>
                 <button type="button" onClick={() => handleQuickLanguageChange('ur')}
-                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${appSettings.language === 'ur' ? 'bg-violet-500/35 text-violet-50' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}
+                  className={`rounded-lg font-semibold transition ${isMobileLayout ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs'} ${appSettings.language === 'ur' ? 'bg-violet-500/35 text-violet-50' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}
                 >اردو</button>
               </div>
 
               {/* Share — icon only on mobile */}
               <div ref={shareMenuRef} className="relative">
                 <button type="button" onClick={() => setShareMenuOpen((prev) => !prev)}
-                  className={`mobile-touch-target inline-flex items-center gap-1.5 rounded-lg border border-white/15 text-slate-200 transition hover:bg-white/10 ${isMobileLayout ? 'h-8 w-8 justify-center' : 'px-3 py-1.5 text-sm'}`}
+                  className={`mobile-touch-target inline-flex items-center gap-1.5 rounded-lg border border-white/15 text-slate-200 transition hover:bg-white/10 ${isMobileLayout ? 'h-7 w-7 justify-center' : 'px-3 py-1.5 text-sm'}`}
                   title="Share"
                 >
-                  <Share2 size={14} />
+                  <Share2 size={isMobileLayout ? 13 : 14} />
                   {!isMobileLayout && <span>Share</span>}
                 </button>
                 {shareMenuOpen && (
@@ -2087,7 +2301,7 @@ export default function App() {
               {/* Sign in button (guest) */}
               {inGuestMode && (
                 <button type="button" onClick={handleExitGuestMode}
-                  className={`mobile-touch-target inline-flex items-center gap-1 rounded-lg border border-cyan-300/35 text-cyan-100 hover:bg-cyan-500/10 transition ${isMobileLayout ? 'h-8 px-2 text-xs' : 'gap-2 px-3 py-1.5 text-sm'}`}
+                  className={`mobile-touch-target inline-flex items-center gap-1 rounded-lg border border-cyan-300/35 text-cyan-100 hover:bg-cyan-500/10 transition ${isMobileLayout ? 'h-7 px-2 text-[11px]' : 'gap-2 px-3 py-1.5 text-sm'}`}
                 >Sign in</button>
               )}
             </div>
@@ -2342,20 +2556,31 @@ export default function App() {
 
       {/* ── CAMERA CAPTURE MODAL ─────────────────────────────────────────── */}
       {cameraCaptureOpen && (
-        <div className="absolute inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
+        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
           <button type="button" className="absolute inset-0 bg-slate-950/75 backdrop-blur-sm" onClick={closeCameraCapture} aria-label="Close camera" />
-          <div className={`relative z-10 w-full bg-slate-900/95 shadow-chat ${isMobileLayout ? 'rounded-t-2xl border-t border-white/15 p-4 pb-6' : 'max-w-lg rounded-2xl border border-white/15 p-4'}`}>
+          <div className={`relative z-10 flex w-full flex-col bg-slate-900/95 shadow-chat ${isMobileLayout ? 'h-[95dvh] rounded-t-2xl border-t border-white/15 p-4 pb-6' : 'h-[92vh] max-w-4xl rounded-2xl border border-white/15 p-4'}`}>
             <h2 className="text-base font-semibold text-white">Take picture</h2>
             <p className="mt-1 text-xs text-slate-300">Capture a photo and attach it to this conversation.</p>
             {cameraCaptureError && <p className="mt-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">{cameraCaptureError}</p>}
-            <div className="mt-3 overflow-hidden rounded-xl border border-white/10 bg-black">
-              <video ref={cameraVideoRef} autoPlay playsInline muted className="h-[260px] w-full object-cover sm:h-[320px]" />
+            <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-xl border border-white/10 bg-black">
+              <video ref={cameraVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
             </div>
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button type="button" onClick={closeCameraCapture} className="mobile-touch-target rounded-lg border border-white/20 px-4 py-2 text-sm text-slate-200 hover:bg-white/10">Cancel</button>
-              <button type="button" onClick={handleCameraCapturePhoto} disabled={cameraCaptureBusy}
-                className="mobile-touch-target inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-emerald-400 disabled:opacity-60"
-              >{cameraCaptureBusy ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />}Capture</button>
+            <div className="mt-4 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={handleSwitchCamera}
+                disabled={cameraCaptureBusy || !navigator.mediaDevices?.getUserMedia}
+                className="mobile-touch-target inline-flex items-center gap-2 rounded-lg border border-white/20 px-4 py-2 text-sm text-slate-200 hover:bg-white/10 disabled:opacity-60"
+              >
+                {cameraCaptureBusy ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+                Switch camera
+              </button>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={closeCameraCapture} className="mobile-touch-target rounded-lg border border-white/20 px-4 py-2 text-sm text-slate-200 hover:bg-white/10">Cancel</button>
+                <button type="button" onClick={handleCameraCapturePhoto} disabled={cameraCaptureBusy}
+                  className="mobile-touch-target inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 hover:bg-emerald-400 disabled:opacity-60"
+                >{cameraCaptureBusy ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />}Capture</button>
+              </div>
             </div>
           </div>
         </div>

@@ -487,9 +487,8 @@ html.theme-light *::-webkit-scrollbar-thumb:hover { background: rgba(137, 153, 1
 }
 
 /* ── Scroll behavior ──────────────────────────────────────────────────────── */
-/* Contain overscroll on the chat area so it doesn't bubble up and trigger
-   pull-to-refresh. The page-level overscroll is left as default (auto) so
-   browsers that implement pull-to-refresh on the document can still do so. */
+/* Keep chat overscroll contained. Pull-to-refresh is handled in App.jsx
+   with a larger top-pull threshold for real mobile devices. */
 .chat-scroll-area {
   overscroll-behavior-y: contain;
 }
@@ -499,15 +498,15 @@ html, body {
   overscroll-behavior: none;
 }
 
-/* Re-enable native pull-to-refresh and overscroll chaining on real mobile
-   devices, including desktop-site mode on phones. */
+/* Keep native overscroll suppression on real mobile as well; refresh is
+   triggered via the explicit threshold handler in App.jsx. */
 html.real-mobile-device,
 html.real-mobile-device body {
-  overscroll-behavior-y: auto;
+  overscroll-behavior-y: none;
 }
 
 html.real-mobile-device .chat-scroll-area {
-  overscroll-behavior-y: auto;
+  overscroll-behavior-y: contain;
 }
 
 /* ── Focus-visible outline (accessibility) ───────────────────────────────── */
