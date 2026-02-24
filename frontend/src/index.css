@@ -25,6 +25,16 @@ body,
   background: #0f172a;
 }
 
+/* On real mobile hardware (including desktop-site mode), allow vertical page
+   scrolling and top-swipe refresh while keeping horizontal clipping. */
+html.real-mobile-device,
+html.real-mobile-device body,
+html.real-mobile-device #root {
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 /* App shell fills full dynamic viewport */
 .app-shell {
   width: 100%;
@@ -489,8 +499,27 @@ html, body {
   overscroll-behavior: none;
 }
 
+/* Re-enable native pull-to-refresh and overscroll chaining on real mobile
+   devices, including desktop-site mode on phones. */
+html.real-mobile-device,
+html.real-mobile-device body {
+  overscroll-behavior-y: auto;
+}
+
+html.real-mobile-device .chat-scroll-area {
+  overscroll-behavior-y: auto;
+}
+
 /* ── Focus-visible outline (accessibility) ───────────────────────────────── */
 :focus-visible {
   outline: 2px solid rgba(34, 197, 94, 0.6);
   outline-offset: 2px;
+}
+
+/* Composer should stay clean on focus in both mobile and desktop */
+.composer-shell textarea:focus,
+.composer-shell textarea:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  border-color: transparent !important;
 }

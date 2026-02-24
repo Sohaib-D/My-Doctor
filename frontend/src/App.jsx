@@ -1057,6 +1057,22 @@ export default function App() {
   }, [shareRouteId]);
 
   useEffect(() => {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return undefined;
+    const root = document.documentElement;
+    const syncRealMobileClass = () => {
+      root.classList.toggle('real-mobile-device', isRealMobileDevice());
+    };
+    syncRealMobileClass();
+    window.addEventListener('resize', syncRealMobileClass);
+    window.addEventListener('orientationchange', syncRealMobileClass);
+    return () => {
+      window.removeEventListener('resize', syncRealMobileClass);
+      window.removeEventListener('orientationchange', syncRealMobileClass);
+      root.classList.remove('real-mobile-device');
+    };
+  }, []);
+
+  useEffect(() => {
     if (authenticated) {
       // Keep sidebar collapsed on real mobile hardware even in desktop site mode
       setIsSidebarOpen(!isMobileLayout && !isRealMobileDevice());
@@ -2131,45 +2147,54 @@ export default function App() {
                 const urduScriptClass = isUrduScriptMessage ? 'urdu-left-align' : '';
                 return (
                   <div key={message.id}
-                    className={`message-bubble break-words ${
-                      isMobileLayout ? 'max-w-[92%] rounded-2xl px-3 py-2.5' : 'max-w-3xl rounded-2xl px-4 py-3'
-                    } ${message.role === 'user' ? 'ml-auto min-h-[52px] min-w-[160px] bg-emerald-500/15 text-emerald-100' : 'mr-auto border border-white/10 bg-slate-800/80 text-slate-100'}`}
+                    className={`relative inline-flex w-fit flex-col ${
+                      message.role === 'user'
+                        ? `ml-auto items-end ${isMobileLayout ? 'max-w-[92%]' : 'max-w-[70%]'}`
+                        : `${isMobileLayout ? 'mr-auto max-w-[92%]' : 'mr-auto max-w-3xl'} items-start`
+                    }`}
                   >
-                    {message.role === 'assistant' ? (
-                      <div className={`message-rich text-sm leading-6 ${urduScriptClass}`.trim()}
-                        style={isUrduScriptMessage ? { direction: 'rtl', textAlign: 'right' } : {}}
-                        dangerouslySetInnerHTML={{ __html: renderMessageHtml(message) }}
-                      />
-                    ) : (
-                      <p className={`whitespace-pre-wrap text-sm leading-6 ${urduScriptClass}`.trim()}
-                        style={isUrduScriptMessage ? { direction: 'rtl', textAlign: 'right' } : {}}
-                      >{messageText}</p>
-                    )}
-                    <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
-                      <span>{message.role === 'user' ? ui.youLabel : ui.assistantLabel}</span>
-                      <div className="flex items-center gap-1">
-                        <button type="button" onClick={() => copyMessageText(message)}
-                          className={`p-1 transition hover:text-white ${message.role === 'user' ? 'bg-transparent' : 'rounded-md hover:bg-white/10'}`}
-                          aria-label="Copy" title="Copy"
-                        ><Copy size={13} /></button>
-                        {message.role === 'user' && (
-                          <button type="button" onClick={() => editUserMessage(message)}
-                            className="bg-transparent p-1 transition hover:text-white"
-                            aria-label="Edit" title="Edit"
-                          ><Pencil size={13} /></button>
-                        )}
-                        {message.role === 'assistant' && (
-                          <button type="button" onClick={() => toggleMessageSpeech(message)}
-                            className={`rounded-md p-1 transition ${speakingMessageId === message.id ? 'bg-emerald-500/20 text-emerald-200' : 'hover:bg-white/10 hover:text-white'}`}
-                            aria-label={speakingMessageId === message.id ? 'Stop speaking' : 'Speak'}
-                          >{speakingMessageId === message.id ? <VolumeX size={13} /> : <Volume2 size={13} />}</button>
-                        )}
-                        <span className="ml-1">{formatTime(message.created_at)}</span>
-                      </div>
+                    <div
+                      className={`message-bubble break-words w-fit max-w-full ${
+                        isMobileLayout ? 'rounded-2xl px-3 py-2.5' : 'rounded-2xl px-4 py-3'
+                      } ${
+                        message.role === 'user'
+                          ? 'ml-auto inline-block min-h-[52px] bg-emerald-500/15 text-emerald-100'
+                          : 'mr-auto border border-white/10 bg-slate-800/80 text-slate-100'
+                      }`}
+                    >
+                      {message.role === 'assistant' ? (
+                        <div className={`message-rich text-sm leading-6 ${urduScriptClass}`.trim()}
+                          style={isUrduScriptMessage ? { direction: 'rtl', textAlign: 'right' } : {}}
+                          dangerouslySetInnerHTML={{ __html: renderMessageHtml(message) }}
+                        />
+                      ) : (
+                        <p className={`inline-block whitespace-pre-wrap text-sm leading-6 ${urduScriptClass}`.trim()}
+                          style={isUrduScriptMessage ? { direction: 'rtl', textAlign: 'right' } : {}}
+                        >{messageText}</p>
+                      )}
+                      {message.failed && (
+                        <p className="mt-2 rounded-md bg-red-500/20 px-2 py-1 text-xs text-red-200">{ui.failedToSend}</p>
+                      )}
                     </div>
-                    {message.failed && (
-                      <p className="mt-2 rounded-md bg-red-500/20 px-2 py-1 text-xs text-red-200">{ui.failedToSend}</p>
-                    )}
+                    <div className="mt-1 inline-flex self-end items-center gap-1 text-[11px] text-slate-400">
+                      <button type="button" onClick={() => copyMessageText(message)}
+                        className="rounded-md p-1 transition hover:bg-white/10 hover:text-white"
+                        aria-label="Copy" title="Copy"
+                      ><Copy size={13} /></button>
+                      {message.role === 'user' && (
+                        <button type="button" onClick={() => editUserMessage(message)}
+                          className="rounded-md p-1 transition hover:bg-white/10 hover:text-white"
+                          aria-label="Edit" title="Edit"
+                        ><Pencil size={13} /></button>
+                      )}
+                      {message.role === 'assistant' && (
+                        <button type="button" onClick={() => toggleMessageSpeech(message)}
+                          className={`rounded-md p-1 transition ${speakingMessageId === message.id ? 'bg-emerald-500/20 text-emerald-200' : 'hover:bg-white/10 hover:text-white'}`}
+                          aria-label={speakingMessageId === message.id ? 'Stop speaking' : 'Speak'}
+                        >{speakingMessageId === message.id ? <VolumeX size={13} /> : <Volume2 size={13} />}</button>
+                      )}
+                      <span className="ml-1">{formatTime(message.created_at)}</span>
+                    </div>
                   </div>
                 );
               })}
