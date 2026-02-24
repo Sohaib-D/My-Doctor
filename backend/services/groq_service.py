@@ -1,6 +1,5 @@
 ﻿from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import re
@@ -15,6 +14,7 @@ import httpx
 from fastapi import HTTPException
 
 from backend.schemas.chat import ChatAttachment, ChatResponse
+from backend.services.groq_client import get_groq_response
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
@@ -137,9 +137,6 @@ _SESSION_TTL_SECONDS = 60 * 60 * 24
 _MAX_MESSAGES_PER_SESSION = 120
 _NON_MEDICAL_SOFT_LIMIT = 3
 
-_MAX_GROQ_RETRIES = 2
-_BASE_RETRY_DELAY_SECONDS = 1.2
-_MAX_RETRY_DELAY_SECONDS = 8.0
 _MAX_ATTACHMENT_TEXT_CHARS = 12000
 _MAX_IMAGE_DATA_URL_CHARS = 4_000_000
 _MAX_IMAGE_ATTACHMENTS_PER_TURN = 3
@@ -846,21 +843,6 @@ def _trim_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return _seed_history() + tail
 
 
-def _parse_retry_after_seconds(headers: httpx.Headers | None) -> float | None:
-    if not headers:
-        return None
-    value = str(headers.get("Retry-After", "")).strip()
-    if not value:
-        return None
-    try:
-        seconds = float(value)
-    except ValueError:
-        return None
-    if seconds < 0:
-        return None
-    return min(seconds, _MAX_RETRY_DELAY_SECONDS)
-
-
 def _clean_text(value: str | None, *, max_len: int = _MAX_ATTACHMENT_TEXT_CHARS) -> str:
     raw = str(value or "").replace("\x00", "").strip()
     if not raw:
@@ -976,30 +958,16 @@ def _is_rate_limited_error(exc: Exception) -> bool:
     return "rate limit" in str(exc or "").lower()
 
 
-def _build_generation_payload(model: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
-    return {
-        "model": model,
-        "messages": messages,
-        "temperature": 0.45,
-        "max_tokens": 1024,
-    }
-
-
-async def _request_groq_once(payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(GROQ_API_URL, json=payload, headers=headers)
-    response.raise_for_status()
-    return response.json()
-
-
 async def _generate_with_model(
     model: str,
     messages: list[dict[str, Any]],
-    headers: dict[str, str],
 ) -> str:
-    payload = _build_generation_payload(model, messages)
-    data = await _request_groq_once(payload, headers)
-    return _extract_assistant_text(data["choices"][0]["message"]["content"])
+    return await get_groq_response(
+        model=model,
+        messages=messages,
+        api_key=GROQ_API_KEY or "",
+        api_url=GROQ_API_URL,
+    )
 
 
 async def generate_with_fallback(messages: list[dict[str, Any]]) -> str:
@@ -1009,26 +977,21 @@ async def generate_with_fallback(messages: list[dict[str, Any]]) -> str:
             detail="Model fallback configuration is incomplete.",
         )
 
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
     try:
         try:
-            return await _generate_with_model(PRIMARY_MODEL, messages, headers)
+            return await _generate_with_model(PRIMARY_MODEL, messages)
         except httpx.HTTPStatusError as primary_exc:
             if not _is_rate_limited_error(primary_exc):
                 raise
             logger.warning("Primary rate limited. Switching to secondary.")
             try:
-                return await _generate_with_model(SECONDARY_MODEL, messages, headers)
+                return await _generate_with_model(SECONDARY_MODEL, messages)
             except httpx.HTTPStatusError as secondary_exc:
                 if not _is_rate_limited_error(secondary_exc):
                     raise
                 logger.warning("Secondary rate limited. Switching to tertiary.")
                 try:
-                    return await _generate_with_model(TERTIARY_MODEL, messages, headers)
+                    return await _generate_with_model(TERTIARY_MODEL, messages)
                 except httpx.HTTPStatusError as tertiary_exc:
                     if _is_rate_limited_error(tertiary_exc):
                         raise HTTPException(
@@ -1046,28 +1009,6 @@ async def generate_with_fallback(messages: list[dict[str, Any]]) -> str:
             status_code=503,
             detail="Unable to reach the AI service right now. Please check your connection and try again.",
         ) from exc
-
-
-async def _request_groq_with_retry(payload: dict, headers: dict[str, str]) -> dict:
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        for attempt in range(_MAX_GROQ_RETRIES + 1):
-            response = await client.post(GROQ_API_URL, json=payload, headers=headers)
-            if response.status_code != 429:
-                response.raise_for_status()
-                return response.json()
-
-            if attempt >= _MAX_GROQ_RETRIES:
-                response.raise_for_status()
-
-            retry_after = _parse_retry_after_seconds(response.headers)
-            wait_seconds = (
-                retry_after
-                if retry_after is not None
-                else min(_BASE_RETRY_DELAY_SECONDS * (2**attempt), _MAX_RETRY_DELAY_SECONDS)
-            )
-            await asyncio.sleep(wait_seconds)
-
-    raise RuntimeError("Unexpected retry flow while calling Groq API.")
 
 
 async def _append_user_message(session_id: str | None, message: str) -> tuple[str, list[dict[str, Any]]]:
