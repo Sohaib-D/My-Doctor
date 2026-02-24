@@ -15,10 +15,21 @@ body,
 #root {
   margin: 0;
   width: 100%;
+  /* Use dvh (dynamic viewport height) so the app fills exactly the visible area
+     on mobile browsers accounting for URL bar + bottom nav bar.
+     Falls back to 100% for older browsers. */
   height: 100%;
-  overflow-x: hidden;
+  height: 100dvh;
+  overflow: hidden;
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
   background: #0f172a;
+}
+
+/* App shell fills full dynamic viewport */
+.app-shell {
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
 }
 
 html.theme-light { color-scheme: light; }
@@ -393,15 +404,14 @@ html.theme-light *::-webkit-scrollbar-thumb:hover { background: rgba(137, 153, 1
   /* Sidebar: always slide in from left as full overlay */
   .sidebar-shell {
     box-shadow: 0 0 40px rgba(2, 6, 23, 0.55), 4px 0 20px rgba(2, 6, 23, 0.25);
-    /* Prevent overflow clipping */
     overflow: hidden;
   }
 
-  /* Chat scroll area: native momentum scrolling */
+  /* Chat scroll area: native momentum scrolling, proper bottom clearance */
   .chat-scroll-area {
     -webkit-overflow-scrolling: touch;
-    /* Extra bottom padding so content clears the composer */
-    padding-bottom: 100px !important;
+    /* Enough padding so last message is always above the composer */
+    padding-bottom: 110px !important;
   }
 
   /* Message bubbles: larger max-width on mobile */
@@ -409,7 +419,7 @@ html.theme-light *::-webkit-scrollbar-thumb:hover { background: rgba(137, 153, 1
     max-width: 95% !important;
   }
 
-  /* Composer textarea: prevent iOS zoom on focus */
+  /* Composer textarea: prevent iOS zoom on focus (must be >= 16px) */
   .composer-shell textarea {
     font-size: 16px !important;
   }
@@ -424,9 +434,6 @@ html.theme-light *::-webkit-scrollbar-thumb:hover { background: rgba(137, 153, 1
   .medical-grid-overlay { opacity: 0.18; }
   .medical-lungs { transform: scale(0.8); }
   .medical-capsule { transform: scale(0.8) rotate(-18deg); }
-
-  /* Modals: slide up from bottom on mobile (sheet style) */
-  /* Already handled in JSX with rounded-t-2xl */
 
   /* Hide scrollbars on mobile to save space */
   *::-webkit-scrollbar { width: 4px; height: 4px; }
@@ -456,35 +463,34 @@ html.theme-light *::-webkit-scrollbar-thumb:hover { background: rgba(137, 153, 1
   .medical-grid-overlay { opacity: 0.34; }
 }
 
-/* ── Safe area insets for notched phones ─────────────────────────────────── */
+/* ── Safe area insets for notched phones (iPhone X+, Android with gesture nav) */
+/* env(safe-area-inset-bottom) handles the home indicator / gesture bar */
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
   .composer-shell {
-    padding-bottom: max(0.125rem, env(safe-area-inset-bottom)) !important;
+    /* Push composer above the home indicator */
+    padding-bottom: max(0.25rem, env(safe-area-inset-bottom)) !important;
   }
   .chat-scroll-area {
-    padding-bottom: calc(100px + env(safe-area-inset-bottom)) !important;
+    /* Extra scroll clearance = composer height + safe area */
+    padding-bottom: calc(110px + env(safe-area-inset-bottom)) !important;
   }
 }
 
-/* ── Prevent pull-to-refresh on mobile chat area ─────────────────────────── */
+/* ── Scroll behavior ──────────────────────────────────────────────────────── */
+/* Contain overscroll on the chat area so it doesn't bubble up and trigger
+   pull-to-refresh. The page-level overscroll is left as default (auto) so
+   browsers that implement pull-to-refresh on the document can still do so. */
 .chat-scroll-area {
   overscroll-behavior-y: contain;
+}
+
+/* Prevent the whole page from bouncing / pull-to-refreshing on iOS */
+html, body {
+  overscroll-behavior: none;
 }
 
 /* ── Focus-visible outline (accessibility) ───────────────────────────────── */
 :focus-visible {
   outline: 2px solid rgba(34, 197, 94, 0.6);
   outline-offset: 2px;
-}
-
-/* Composer focus: remove green focus box */
-.composer-shell *:focus,
-.composer-shell *:focus-visible {
-  outline: none !important;
-  box-shadow: none !important;
-}
-
-.composer-shell textarea:focus,
-.composer-shell textarea:focus-visible {
-  border-color: transparent !important;
 }

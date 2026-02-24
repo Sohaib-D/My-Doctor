@@ -81,12 +81,29 @@ const SIDEBAR_RESIZE_MAX = 400;
 const MOBILE_MAX_WIDTH = 767;
 const TABLET_MAX_WIDTH = 1199;
 
-// Detects real mobile hardware (Android + iPhone/iPad) regardless of viewport width.
-// This ensures "Request Desktop Site" still gets mobile-friendly sidebar behavior.
+// Detects real mobile/touch hardware regardless of viewport width or desktop site mode.
+// Three-signal detection for maximum reliability across all Android (including Infinix/Tecno/etc)
+// and iPhone/iPad devices:
+//   1. UA check  — catches normal mobile browsers (not desktop site mode)
+//   2. Touch points — phones always have maxTouchPoints > 1; desktops rarely do
+//   3. Physical screen size via window.screen — unchanged even in desktop site mode
+// All three are checked so no single signal failure causes wrong result.
 const isRealMobileDevice = () => {
-  if (typeof navigator === 'undefined') return false;
-  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  if (typeof navigator === 'undefined' || typeof window === 'undefined') return false;
+  // Signal 1: user agent (works in normal mobile mode; stripped in desktop site mode)
+  const mobileUA = /Android|iPhone|iPad|iPod|Mobile|Tablet/i.test(navigator.userAgent);
+  // Signal 2: touch capability — real phones always have maxTouchPoints > 1
+  const hasTouch = navigator.maxTouchPoints > 1;
+  // Signal 3: physical screen dimensions — small on phones, large on desktops
+  // window.screen reports hardware pixels, NOT affected by desktop site mode
+  const smallPhysicalScreen = Math.min(window.screen.width, window.screen.height) <= 900;
+  // A real mobile device satisfies either (UA match) OR (touch + small screen)
+  // This covers Infinix/generic Android in desktop site mode (UA stripped, but touch+screen remain)
+  return mobileUA || (hasTouch && smallPhysicalScreen);
 };
+
+// Narrower sidebar width for real mobile devices using desktop site mode
+const MOBILE_DESKTOP_SIDEBAR_WIDTH = 220;
 const SILENCE_TIMEOUT_MS = 2000;
 const MAX_IMAGE_ATTACHMENTS = 10;
 const MAX_IMAGE_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024;
@@ -544,8 +561,6 @@ export default function App() {
   const [autoVoice, setAutoVoice] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareError, setShareError] = useState('');
-  const [mobileDesktopHintAuthOpen, setMobileDesktopHintAuthOpen] = useState(false);
-  const [mobileDesktopHintAppOpen, setMobileDesktopHintAppOpen] = useState(false);
   const [helpModalOpen, setHelpModalOpen] = useState(false);
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
   const [reviewText, setReviewText] = useState('');
@@ -846,7 +861,6 @@ export default function App() {
     setDraft(''); setDraftsByMode({ chat: '', drug: '', research: '', who: '' });
     setAttachedImages([]); setComposerAttachmentMenuOpen(false);
     setCameraCaptureOpen(false); setCameraCaptureBusy(false); setCameraCaptureError('');
-    setMobileDesktopHintAuthOpen(false); setMobileDesktopHintAppOpen(false);
     stopCameraCaptureStream();
     setActiveMode(DEFAULT_CHAT_MODE); setChatError(''); setShowScrollToLatest(false);
     setShareError(''); setSessionMenuOpenId(''); setSessionActionBusyId('');
@@ -866,7 +880,10 @@ export default function App() {
 
   const openSidebar = useCallback(() => {
     setIsSidebarOpen(true);
-    setSidebarWidth((prev) => prev <= SIDEBAR_COLLAPSED_WIDTH + 4 ? SIDEBAR_OPEN_WIDTH : clampSidebarWidth(prev));
+    setSidebarWidth((prev) => {
+      const targetOpen = (!isMobileLayout && isRealMobileDevice()) ? MOBILE_DESKTOP_SIDEBAR_WIDTH : SIDEBAR_OPEN_WIDTH;
+      return prev <= SIDEBAR_COLLAPSED_WIDTH + 4 ? targetOpen : clampSidebarWidth(prev);
+    });
   }, []);
 
   const closeSidebar = useCallback(() => {
@@ -1043,33 +1060,12 @@ export default function App() {
     if (authenticated) {
       // Keep sidebar collapsed on real mobile hardware even in desktop site mode
       setIsSidebarOpen(!isMobileLayout && !isRealMobileDevice());
-      setSidebarWidth((prev) => prev <= SIDEBAR_COLLAPSED_WIDTH + 4 ? SIDEBAR_OPEN_WIDTH : clampSidebarWidth(prev));
+      setSidebarWidth((prev) => {
+      const targetOpen = (!isMobileLayout && isRealMobileDevice()) ? MOBILE_DESKTOP_SIDEBAR_WIDTH : SIDEBAR_OPEN_WIDTH;
+      return prev <= SIDEBAR_COLLAPSED_WIDTH + 4 ? targetOpen : clampSidebarWidth(prev);
+    });
     }
   }, [authenticated, isMobileLayout]);
-
-  useEffect(() => {
-    if (shareRouteId) {
-      setMobileDesktopHintAuthOpen(false);
-      return;
-    }
-    if (isMobileLayout && !authenticated && !inGuestMode) {
-      setMobileDesktopHintAuthOpen(true);
-      return;
-    }
-    setMobileDesktopHintAuthOpen(false);
-  }, [authenticated, inGuestMode, isMobileLayout, shareRouteId]);
-
-  useEffect(() => {
-    if (shareRouteId) {
-      setMobileDesktopHintAppOpen(false);
-      return;
-    }
-    if (isMobileLayout && authenticated) {
-      setMobileDesktopHintAppOpen(true);
-      return;
-    }
-    setMobileDesktopHintAppOpen(false);
-  }, [authenticated, isMobileLayout, shareRouteId]);
 
   useEffect(() => {
     if (shareRouteId) return;
@@ -1764,43 +1760,23 @@ export default function App() {
 
   if (!authenticated && !inGuestMode) {
     return (
-      <div className="relative min-h-screen">
-        <AuthCard
-          mode={authMode} busy={authBusy} error={authError} info={authInfo} initialEmail={authLastEmail}
-          showResendVerification={showResendVerification} resendBusy={resendBusy}
-          onModeChange={handleAuthModeChange} onEmailLogin={handleEmailLogin} onEmailSignup={handleEmailSignup}
-          onRequestPasswordReset={handleRequestPasswordReset} onResetPassword={handleResetPassword}
-          onGoogleLogin={handleGoogleLogin} onResendVerification={handleResendVerification}
-          onContinueAsGuest={handleContinueAsGuest}
-        />
-        {isMobileLayout && mobileDesktopHintAuthOpen && (
-          <div className="fixed inset-0 z-[80] flex items-end justify-center sm:items-center sm:p-4">
-            <button
-              type="button"
-              className="absolute inset-0 bg-slate-950/75 backdrop-blur-sm"
-              onClick={() => setMobileDesktopHintAuthOpen(false)}
-              aria-label="Close desktop recommendation"
-            />
-            <div className="relative z-10 w-full rounded-t-2xl border-t border-white/15 bg-slate-900/95 p-4 pb-6 shadow-chat sm:max-w-md sm:rounded-2xl sm:border sm:p-5">
-              <h2 className="text-base font-semibold text-white">Desktop view recommended</h2>
-              <p className="mt-1 text-sm text-slate-300">
-                For the best experience, use this app on desktop or laptop. Mobile works, but some features are easier on a larger screen.
-              </p>
-              <div className="mt-4 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setMobileDesktopHintAuthOpen(false)}
-                  className="mobile-touch-target rounded-lg border border-white/20 px-4 py-2 text-sm text-slate-200 hover:bg-white/10"
-                >Continue on mobile</button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+      <AuthCard
+        mode={authMode} busy={authBusy} error={authError} info={authInfo} initialEmail={authLastEmail}
+        showResendVerification={showResendVerification} resendBusy={resendBusy}
+        onModeChange={handleAuthModeChange} onEmailLogin={handleEmailLogin} onEmailSignup={handleEmailSignup}
+        onRequestPasswordReset={handleRequestPasswordReset} onResetPassword={handleResetPassword}
+        onGoogleLogin={handleGoogleLogin} onResendVerification={handleResendVerification}
+        onContinueAsGuest={handleContinueAsGuest}
+      />
     );
   }
 
-  const inlineSidebarWidth = isSidebarOpen ? sidebarWidth : SIDEBAR_COLLAPSED_WIDTH;
+  // On real mobile devices using desktop site mode, use a narrower sidebar
+  // so it doesn't eat too much of the small screen.
+  const effectiveSidebarOpenWidth = (!isMobileLayout && isRealMobileDevice())
+    ? MOBILE_DESKTOP_SIDEBAR_WIDTH
+    : sidebarWidth;
+  const inlineSidebarWidth = isSidebarOpen ? effectiveSidebarOpenWidth : SIDEBAR_COLLAPSED_WIDTH;
   const overlaySidebarWidth = `min(${SIDEBAR_OPEN_WIDTH}px, 85vw)`;
   const mainContentOffset = isMobileLayout ? 0 : inlineSidebarWidth;
   const ActiveModeIcon = activeModeConfig.icon;
@@ -1810,7 +1786,7 @@ export default function App() {
   const typingIndicatorLogoGlow = 'drop-shadow(0 2px 6px rgba(16,185,129,0.35))';
 
   return (
-    <div className="app-shell relative flex h-screen min-h-0 flex-col overflow-hidden bg-slatebg text-slate-100">
+    <div className="app-shell relative flex min-h-0 flex-col overflow-hidden bg-slatebg text-slate-100">
       <style>{`
         .message-rich { font-size: 14px; line-height: 1.7; color: #e2e8f0; }
         .message-rich strong { color: #a5f3fc; font-weight: 700; }
@@ -2107,7 +2083,7 @@ export default function App() {
             onScroll={handleChatScroll}
             className={`chat-scroll-area min-h-0 flex-1 overflow-y-auto overflow-x-hidden ${
               isMobileLayout
-                ? isEmptyChatState ? 'px-3 py-2 pb-24' : 'px-3 py-2 pb-24'
+                ? isEmptyChatState ? 'px-3 py-2 pb-32' : 'px-3 py-2 pb-32'
                 : isEmptyChatState ? 'px-4 py-3 pb-24' : 'px-4 py-5 pb-32'
             }`}
           >
@@ -2155,50 +2131,45 @@ export default function App() {
                 const urduScriptClass = isUrduScriptMessage ? 'urdu-left-align' : '';
                 return (
                   <div key={message.id}
-                    className={`relative inline-flex w-fit flex-col ${
-                      message.role === 'user'
-                        ? 'ml-auto items-end max-w-[70%]'
-                        : `${isMobileLayout ? 'mr-auto items-start max-w-[92%]' : 'mr-auto items-start max-w-3xl'}`
-                    }`}
+                    className={`message-bubble break-words ${
+                      isMobileLayout ? 'max-w-[92%] rounded-2xl px-3 py-2.5' : 'max-w-3xl rounded-2xl px-4 py-3'
+                    } ${message.role === 'user' ? 'ml-auto min-h-[52px] min-w-[160px] bg-emerald-500/15 text-emerald-100' : 'mr-auto border border-white/10 bg-slate-800/80 text-slate-100'}`}
                   >
-                    <div
-                      className={`message-bubble break-words ${
-                        isMobileLayout ? 'rounded-2xl px-3 py-2.5' : 'rounded-2xl px-4 py-3'
-                      } ${message.role === 'user' ? 'inline-block min-h-[52px] w-fit max-w-full bg-emerald-500/15 text-emerald-100' : 'border border-white/10 bg-slate-800/80 text-slate-100'}`}
-                    >
-                      {message.role === 'assistant' ? (
-                        <div className={`message-rich text-sm leading-6 ${urduScriptClass}`.trim()}
-                          style={isUrduScriptMessage ? { direction: 'rtl', textAlign: 'right' } : {}}
-                          dangerouslySetInnerHTML={{ __html: renderMessageHtml(message) }}
-                        />
-                      ) : (
-                        <p className={`inline-block whitespace-pre-wrap text-sm leading-6 ${urduScriptClass}`.trim()}
-                          style={isUrduScriptMessage ? { direction: 'rtl', textAlign: 'right' } : {}}
-                        >{messageText}</p>
-                      )}
-                      {message.failed && (
-                        <p className="mt-2 rounded-md bg-red-500/20 px-2 py-1 text-xs text-red-200">{ui.failedToSend}</p>
-                      )}
+                    {message.role === 'assistant' ? (
+                      <div className={`message-rich text-sm leading-6 ${urduScriptClass}`.trim()}
+                        style={isUrduScriptMessage ? { direction: 'rtl', textAlign: 'right' } : {}}
+                        dangerouslySetInnerHTML={{ __html: renderMessageHtml(message) }}
+                      />
+                    ) : (
+                      <p className={`whitespace-pre-wrap text-sm leading-6 ${urduScriptClass}`.trim()}
+                        style={isUrduScriptMessage ? { direction: 'rtl', textAlign: 'right' } : {}}
+                      >{messageText}</p>
+                    )}
+                    <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
+                      <span>{message.role === 'user' ? ui.youLabel : ui.assistantLabel}</span>
+                      <div className="flex items-center gap-1">
+                        <button type="button" onClick={() => copyMessageText(message)}
+                          className={`p-1 transition hover:text-white ${message.role === 'user' ? 'bg-transparent' : 'rounded-md hover:bg-white/10'}`}
+                          aria-label="Copy" title="Copy"
+                        ><Copy size={13} /></button>
+                        {message.role === 'user' && (
+                          <button type="button" onClick={() => editUserMessage(message)}
+                            className="bg-transparent p-1 transition hover:text-white"
+                            aria-label="Edit" title="Edit"
+                          ><Pencil size={13} /></button>
+                        )}
+                        {message.role === 'assistant' && (
+                          <button type="button" onClick={() => toggleMessageSpeech(message)}
+                            className={`rounded-md p-1 transition ${speakingMessageId === message.id ? 'bg-emerald-500/20 text-emerald-200' : 'hover:bg-white/10 hover:text-white'}`}
+                            aria-label={speakingMessageId === message.id ? 'Stop speaking' : 'Speak'}
+                          >{speakingMessageId === message.id ? <VolumeX size={13} /> : <Volume2 size={13} />}</button>
+                        )}
+                        <span className="ml-1">{formatTime(message.created_at)}</span>
+                      </div>
                     </div>
-                    <div className="mt-1 inline-flex self-end items-center gap-1 text-[11px] text-slate-400">
-                      <button type="button" onClick={() => copyMessageText(message)}
-                        className="rounded-md p-1 transition hover:bg-white/10 hover:text-white"
-                        aria-label="Copy" title="Copy"
-                      ><Copy size={13} /></button>
-                      {message.role === 'user' && (
-                        <button type="button" onClick={() => editUserMessage(message)}
-                          className="rounded-md p-1 transition hover:bg-white/10 hover:text-white"
-                          aria-label="Edit" title="Edit"
-                        ><Pencil size={13} /></button>
-                      )}
-                      {message.role === 'assistant' && (
-                        <button type="button" onClick={() => toggleMessageSpeech(message)}
-                          className={`rounded-md p-1 transition ${speakingMessageId === message.id ? 'bg-emerald-500/20 text-emerald-200' : 'hover:bg-white/10 hover:text-white'}`}
-                          aria-label={speakingMessageId === message.id ? 'Stop speaking' : 'Speak'}
-                        >{speakingMessageId === message.id ? <VolumeX size={13} /> : <Volume2 size={13} />}</button>
-                      )}
-                      <span className="ml-1">{formatTime(message.created_at)}</span>
-                    </div>
+                    {message.failed && (
+                      <p className="mt-2 rounded-md bg-red-500/20 px-2 py-1 text-xs text-red-200">{ui.failedToSend}</p>
+                    )}
                   </div>
                 );
               })}
@@ -2224,7 +2195,7 @@ export default function App() {
 
           {/* Scroll to bottom button */}
           {showScrollToLatest && sortedMessages.length > 0 && (
-            <div className="pointer-events-none absolute z-30" style={{ left: '50%', transform: 'translateX(-50%)', bottom: isMobileLayout ? 132 : 114 }}>
+            <div className="pointer-events-none absolute z-30" style={{ left: '50%', transform: 'translateX(-50%)', bottom: isMobileLayout ? 148 : 114 }}>
               <button type="button" onClick={() => scrollChatToBottom('smooth')}
                 className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-emerald-300/40 bg-slate-900/90 text-emerald-200 shadow-[0_8px_20px_rgba(16,185,129,0.25)] transition hover:bg-slate-800 hover:text-emerald-100"
                 aria-label="Jump to latest message"
@@ -2247,7 +2218,7 @@ export default function App() {
           )}
 
           {/* ── COMPOSER ─────────────────────────────────────────────────── */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20">
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
             <div className={`composer-shell pointer-events-auto bg-transparent ${isMobileLayout ? 'px-2 py-0.5' : 'px-4 py-1.5'}`}>
               <div className={`mx-auto w-full ${isMobileLayout ? 'max-w-full' : 'max-w-2xl'}`}>
                 {(chatError || shareError) && (
@@ -2366,34 +2337,10 @@ export default function App() {
       )}
 
       {/* ── HELP MODAL ───────────────────────────────────────────────────── */}
-      {isMobileLayout && mobileDesktopHintAppOpen && (
-        <div className="fixed inset-0 z-[80] flex items-end justify-center sm:items-center sm:p-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-slate-950/75 backdrop-blur-sm"
-            onClick={() => setMobileDesktopHintAppOpen(false)}
-            aria-label="Close desktop recommendation"
-          />
-          <div className="relative z-10 w-full rounded-t-2xl border-t border-white/15 bg-slate-900/95 p-4 pb-6 shadow-chat sm:max-w-md sm:rounded-2xl sm:border sm:p-5">
-            <h2 className="text-base font-semibold text-white">Desktop view recommended</h2>
-            <p className="mt-1 text-sm text-slate-300">
-              You are signed in. For smoother navigation and better readability, desktop or laptop view is recommended.
-            </p>
-            <div className="mt-4 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setMobileDesktopHintAppOpen(false)}
-                className="mobile-touch-target rounded-lg border border-white/20 px-4 py-2 text-sm text-slate-200 hover:bg-white/10"
-              >Continue on mobile</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {helpModalOpen && (
         <div className="absolute inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
           <button type="button" className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm" onClick={handleCloseHelpModal} aria-label="Close help" />
-          <div className={`relative z-10 w-full bg-slate-900/95 shadow-chat ${isMobileLayout ? 'max-h-[88vh] overflow-y-auto rounded-t-2xl border-t border-white/15 p-4 pb-8' : 'max-w-2xl rounded-2xl border border-white/15 p-4 sm:p-5'}`}>
+          <div className={`relative z-10 w-full bg-slate-900/95 shadow-chat ${isMobileLayout ? 'max-h-[88dvh] overflow-y-auto rounded-t-2xl border-t border-white/15 p-4 pb-8' : 'max-w-2xl rounded-2xl border border-white/15 p-4 sm:p-5'}`}>
             <p className="text-xs uppercase tracking-wider text-slate-400">{ui.helpLabel}</p>
             <h2 className="mt-1 text-lg font-semibold text-white">{ui.helpTitle}</h2>
             <div className="mt-4 space-y-3 text-sm text-slate-200">
@@ -2504,7 +2451,7 @@ export default function App() {
               </div>
             </div>
 
-            <div className={`overflow-y-auto ${isMobileLayout ? 'max-h-[calc(92vh-130px)] p-4' : 'max-h-[78vh] p-5'}`}>
+            <div className={`overflow-y-auto ${isMobileLayout ? 'max-h-[calc(92dvh-130px)] p-4' : 'max-h-[78vh] p-5'}`}>
               {settingsTab === SETTINGS_TAB_GENERAL && (
                 <>
                   {preferencesError && <p className="mb-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">{preferencesError}</p>}
