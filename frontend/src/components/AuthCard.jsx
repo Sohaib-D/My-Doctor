@@ -183,10 +183,10 @@ export default function AuthCard({
   };
 
   return (
-    <div className="auth-page-shell relative flex min-h-screen items-center justify-center px-4 py-10">
+    <div className="auth-page-shell relative flex min-h-screen items-center justify-center px-4 py-10 lg:py-8">
       <MedicalBackground opacity={0.25} />
-      <div className="auth-card-panel relative z-10 w-full max-w-md rounded-2xl border border-white/10 bg-slate-900/90 p-7 shadow-chat backdrop-blur-xl">
-        <div className="mb-6 flex items-center gap-3">
+      <div className="auth-card-panel relative z-10 w-full max-w-md rounded-2xl border border-white/10 bg-slate-900/90 p-7 lg:p-6 xl:p-5 shadow-chat backdrop-blur-xl">
+        <div className="mb-6 lg:mb-5 flex items-center gap-3">
           <div className="pd-stethoscope-emerald rounded-lg bg-emerald-500/20 p-2 text-emerald-300">
             <Stethoscope size={18} />
           </div>
@@ -198,7 +198,7 @@ export default function AuthCard({
           </div>
         </div>
 
-        <form className="space-y-4" onSubmit={onSubmit} autoComplete="on">
+        <form className="space-y-4 lg:space-y-3" onSubmit={onSubmit} autoComplete="on">
           <div>
             <label className="mb-1 block text-sm text-slate-300" htmlFor="auth_email">
               Email
@@ -356,7 +356,7 @@ export default function AuthCard({
               setNewPassword('');
               setConfirmNewPassword('');
             }}
-            className="mt-3 text-left text-sm text-cyan-200 underline decoration-cyan-500/60 underline-offset-4 hover:text-cyan-100"
+            className="mt-3 lg:mt-2 text-left text-sm text-cyan-200 underline decoration-cyan-500/60 underline-offset-4 hover:text-cyan-100"
           >
             Forgot password?
           </button>
@@ -473,12 +473,12 @@ export default function AuthCard({
           <button
             type="button"
             onClick={() => onModeChange('login')}
-            className="mt-5 text-sm text-slate-300 underline decoration-slate-500 underline-offset-4 hover:text-white"
+            className="mt-5 lg:mt-4 text-sm text-slate-300 underline decoration-slate-500 underline-offset-4 hover:text-white"
           >
             Already registered? Sign in
           </button>
         ) : (
-          <div className="mt-5 flex w-full items-center justify-between gap-3">
+          <div className="mt-5 lg:mt-4 flex w-full items-center justify-between gap-3">
             <button
               type="button"
               onClick={() => onModeChange('register')}
