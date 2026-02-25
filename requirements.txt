@@ -11,4 +11,5 @@ python-jose[cryptography]==3.3.0
 cryptography==43.0.3
 bcrypt==4.2.1
 google-auth==2.38.0
+requests>=2.32.0  # required by google-auth transport
 pytest==7.4.0
