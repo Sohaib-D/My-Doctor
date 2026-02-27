@@ -153,6 +153,40 @@ _URDU_MULTISPACE_RE = re.compile(r"[ \t]{2,}")
 _URDU_EXCESS_NEWLINES_RE = re.compile(r"\n{3,}")
 _DR_AMNA_NAME_RE = re.compile(r"\b(?:dr\.?|doctor)\s*\.?\s*a?amna\b", re.IGNORECASE)
 _GUEST_DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
+_ROMAN_URDU_FEMININE_SELF_FORMS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bkronga\b", re.IGNORECASE), "krungi"),
+    (re.compile(r"\bkrunga\b", re.IGNORECASE), "krungi"),
+    (re.compile(r"\bkaronga\b", re.IGNORECASE), "karungi"),
+    (re.compile(r"\bkarunga\b", re.IGNORECASE), "karungi"),
+    (re.compile(r"\bbtaonga\b", re.IGNORECASE), "btaungi"),
+    (re.compile(r"\bbtaunga\b", re.IGNORECASE), "btaungi"),
+    (re.compile(r"\bbataonga\b", re.IGNORECASE), "bataungi"),
+    (re.compile(r"\bbataunga\b", re.IGNORECASE), "bataungi"),
+    (re.compile(r"\bsamjhaonga\b", re.IGNORECASE), "samjhaungi"),
+    (re.compile(r"\bsamjhaunga\b", re.IGNORECASE), "samjhaungi"),
+    (re.compile(r"\bdonga\b", re.IGNORECASE), "dungi"),
+    (re.compile(r"\bdunga\b", re.IGNORECASE), "dungi"),
+    (re.compile(r"\bdeonga\b", re.IGNORECASE), "deungi"),
+    (re.compile(r"\bdeunga\b", re.IGNORECASE), "deungi"),
+    (re.compile(r"\bdoonga\b", re.IGNORECASE), "doongi"),
+    (re.compile(r"\blonga\b", re.IGNORECASE), "lungi"),
+    (re.compile(r"\blunga\b", re.IGNORECASE), "lungi"),
+    (re.compile(r"\bleonga\b", re.IGNORECASE), "leungi"),
+    (re.compile(r"\bleunga\b", re.IGNORECASE), "leungi"),
+    (re.compile(r"\bloonga\b", re.IGNORECASE), "loongi"),
+    (re.compile(r"\brahonga\b", re.IGNORECASE), "rahungi"),
+    (re.compile(r"\brahunga\b", re.IGNORECASE), "rahungi"),
+    (re.compile(r"\bsakonga\b", re.IGNORECASE), "sakungi"),
+    (re.compile(r"\bsakunga\b", re.IGNORECASE), "sakungi"),
+    (re.compile(r"\bjaonga\b", re.IGNORECASE), "jaungi"),
+    (re.compile(r"\bjaunga\b", re.IGNORECASE), "jaungi"),
+    (re.compile(r"\baaonga\b", re.IGNORECASE), "aaungi"),
+    (re.compile(r"\baaunga\b", re.IGNORECASE), "aaungi"),
+    (re.compile(r"\bpaonga\b", re.IGNORECASE), "paungi"),
+    (re.compile(r"\bpaunga\b", re.IGNORECASE), "paungi"),
+    (re.compile(r"\bhonga\b", re.IGNORECASE), "hongi"),
+    (re.compile(r"\bhunga\b", re.IGNORECASE), "hungi"),
+)
 _URDU_ASCII_PUNCT_TRANSLATION = str.maketrans(
     {
         "?": "\u061f",
@@ -632,7 +666,8 @@ def _build_turn_language_instruction(expected_language: str) -> str:
         return (
             "Reply only in Roman Urdu using Latin letters. "
             "Do not use Urdu script or Devanagari. "
-            "When referring to yourself, use feminine wording."
+            "When referring to yourself, use feminine wording. "
+            "Use feminine Roman Urdu verb forms such as 'main karungi', never masculine forms like 'karunga' or 'kronga'."
         )
     return "Reply only in English. Do not use Urdu script or Devanagari."
 
@@ -668,6 +703,11 @@ def _normalize_reply_for_expected_language(text: str, expected_language: str) ->
     if expected_language == _LANG_URDU_SCRIPT:
         normalized = _normalize_urdu_script_reply(value)
         return _DR_AMNA_NAME_RE.sub("ڈاکٹر آمنہ", normalized)
+    if expected_language == _LANG_ROMAN_URDU:
+        normalized = value
+        for pattern, replacement in _ROMAN_URDU_FEMININE_SELF_FORMS:
+            normalized = pattern.sub(replacement, normalized)
+        return normalized
     return value
 
 
@@ -737,7 +777,8 @@ def _build_language_rewrite_instruction(expected_language: str) -> str:
             "Rewrite the response in Roman Urdu only using Latin letters. "
             "Keep the same medical meaning and structure. "
             "Do not use Urdu script or Devanagari. "
-            "Use feminine wording for self-reference."
+            "Use feminine wording for self-reference. "
+            "Use feminine Roman Urdu forms (for example: karungi, bataungi, samjhaungi), not masculine forms (karunga, btaunga, kronga)."
         )
     return (
         "Rewrite the response in clear English only. "

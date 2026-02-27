@@ -116,6 +116,21 @@ def test_normalize_urdu_script_reply_converts_ascii_punctuation_and_markdown():
     assert "\u2022 " in normalized
 
 
+def test_normalize_roman_urdu_reply_enforces_feminine_self_forms():
+    raw = "Main kronga aur phir karunga. Zarurat parhi to dunga, jaunga aur samjhaunga."
+    normalized = gs._normalize_reply_for_expected_language(raw, gs._LANG_ROMAN_URDU)
+    assert "kronga" not in normalized.lower()
+    assert "karunga" not in normalized.lower()
+    assert "dunga" not in normalized.lower()
+    assert "jaunga" not in normalized.lower()
+    assert "samjhaunga" not in normalized.lower()
+    assert "krungi" in normalized.lower()
+    assert "karungi" in normalized.lower()
+    assert "dungi" in normalized.lower()
+    assert "jaungi" in normalized.lower()
+    assert "samjhaungi" in normalized.lower()
+
+
 def test_chat_with_groq_urdu_switch_does_not_force_generic_fallback(monkeypatch):
     async def fake_generate_with_fallback(_messages):
         return (

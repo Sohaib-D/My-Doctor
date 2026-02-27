@@ -912,12 +912,14 @@ export default function App() {
   const stopSpeaking = useCallback(() => {
     if ('speechSynthesis' in window) {
       const synthesis = window.speechSynthesis;
+      try { synthesis.pause(); } catch {}
       try { synthesis.cancel(); } catch {}
       if (synthesis.paused) {
         try { synthesis.resume(); } catch {}
       }
       // Some mobile engines require a second cancel pass to clear pending speech immediately.
       try { synthesis.cancel(); } catch {}
+      window.setTimeout(() => { try { synthesis.cancel(); } catch {} }, 60);
     }
     utteranceRef.current = null;
     setSpeakingMessageId('');
@@ -2739,6 +2741,7 @@ export default function App() {
               {/* Messages */}
               {sortedMessages.map((message) => {
                 const messageText = normalizeMessageText(message);
+                const messageId = String(message?.id || '');
                 const isUrduScriptMessage = containsUrdu(messageText);
                 const urduScriptClass = isUrduScriptMessage ? 'urdu-left-align' : '';
                 return (
@@ -2787,9 +2790,9 @@ export default function App() {
                       )}
                       {message.role === 'assistant' && (
                         <button type="button" onClick={() => toggleMessageSpeech(message)}
-                          className={`rounded-md p-1 transition ${speakingMessageId === message.id ? 'bg-emerald-500/20 text-emerald-200' : 'hover:bg-white/10 hover:text-white'}`}
-                          aria-label={speakingMessageId === message.id ? 'Stop speaking' : 'Speak'}
-                        >{speakingMessageId === message.id ? <VolumeX size={13} /> : <Volume2 size={13} />}</button>
+                          className={`rounded-md p-1 transition ${speakingMessageId === messageId ? 'bg-emerald-500/20 text-emerald-200' : 'hover:bg-white/10 hover:text-white'}`}
+                          aria-label={speakingMessageId === messageId ? 'Stop speaking' : 'Speak'}
+                        >{speakingMessageId === messageId ? <VolumeX size={13} /> : <Volume2 size={13} />}</button>
                       )}
                       <span className={message.role === 'assistant' ? '' : 'ml-1'}>{formatTime(message.created_at)}</span>
                     </div>
@@ -2858,11 +2861,10 @@ export default function App() {
                 )}
 
                 {/* Status indicators on mobile — above composer */}
-                {isMobileLayout && (dictationState !== 'idle' || speakingMessageId) && (
+                {isMobileLayout && dictationState !== 'idle' && (
                   <div className="mb-1.5 flex items-center gap-3 px-1 text-xs">
                     {dictationState === 'listening' && <span className="text-emerald-300/90">{ui.listening}</span>}
                     {dictationState === 'processing' && <span className="text-amber-200/90">{ui.processingSpeech}</span>}
-                    {speakingMessageId && <span className="text-cyan-200/90">{ui.speaking}</span>}
                   </div>
                 )}
 
