@@ -4,7 +4,8 @@ services:
     env: python
     buildCommand: |
       pip install --upgrade pip && \
-      pip install -r requirements.txt
+      pip install -r requirements.txt && \
+      cd frontend && npm install && npm run build
     startCommand: alembic upgrade head && uvicorn backend.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:

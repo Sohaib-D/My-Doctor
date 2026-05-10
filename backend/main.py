@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import logging
 
 from fastapi import FastAPI
 from fastapi import HTTPException
@@ -10,9 +11,12 @@ from fastapi.responses import FileResponse
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from backend.config import get_settings
 from backend.database.session import engine
+
+logger = logging.getLogger(__name__)
 from backend.routers.admin import router as admin_router
 from backend.routers.auth import router as auth_router
 from backend.routers.chat import router as chat_router
@@ -60,8 +64,15 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     def startup_check() -> None:
-        with engine.connect() as connection:
-            connection.execute(text("SELECT 1"))
+        try:
+            with engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+        except SQLAlchemyError as exc:
+            logger.exception("Database startup check failed.")
+            raise RuntimeError(
+                "Database connection failed during startup. Verify DATABASE_URL, network access, and Supabase SSL settings."
+            ) from exc
+        logger.info("Database connection established successfully.")
 
     @app.get("/healthz", tags=["system"])
     def healthz() -> dict:

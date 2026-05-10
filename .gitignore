@@ -1,6 +1,9 @@
 # Environment
 .env
 
+# Local SQLite
+dev.db
+
 # Python
 venv/
 .venv/

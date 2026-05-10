@@ -57,6 +57,7 @@ def _first_non_empty(*values: str | None) -> str:
 
 def _normalize_database_url(raw_url: str) -> str:
     url = raw_url.strip()
+
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql+psycopg2://", 1)
     elif url.startswith("postgresql://") and "+psycopg2" not in url:
@@ -73,12 +74,11 @@ def _normalize_database_url(raw_url: str) -> str:
         or host.startswith("192.168.")
         or host.startswith("172.")
     )
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
     if not is_local:
-        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
         query.setdefault("sslmode", "require")
-        parsed = parsed._replace(query=urlencode(query))
-        url = urlunparse(parsed)
-    return url
+    parsed = parsed._replace(query=urlencode(query))
+    return urlunparse(parsed)
 
 
 @dataclass(frozen=True)
