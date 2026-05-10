@@ -11,6 +11,8 @@ services:
     envVars:
       - key: APP_ENV
         value: production
+      - key: APP_NAME
+        value: Personal Doctor
       - key: DEBUG
         value: "false"
       - key: PORT
@@ -19,17 +21,43 @@ services:
         sync: false
       - key: SECRET_KEY
         sync: false
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "60"
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_API_KEYS
+        sync: false
+      - key: PRIMARY_MODEL
+        value: llama-3.3-70b-versatile
+      - key: SECONDARY_MODEL
+        value: qwen/qwen3-32b
+      - key: TERTIARY_MODEL
+        value: meta-llama/llama-4-scout-17b-16e-instruct
+      - key: GROQ_VISION_MODEL
+        value: meta-llama/llama-4-scout-17b-16e-instruct
+      - key: GROQ_COOLDOWN_SECONDS
+        value: "180"
+      - key: NCBI_API_KEY
+        sync: false
       - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
         sync: false
       - key: SENDGRID_API_KEY
         sync: false
       - key: FROM_EMAIL
         sync: false
+      - key: SENDGRID_FROM_NAME
+        value: Personal Doctor
       - key: ADMIN_EMAIL
         sync: false
       - key: ADMIN_PANEL_EMAIL
         sync: false
       - key: ADMIN_PANEL_PASSWORD_HASH
+        sync: false
+      - key: VERIFY_URL_BASE
         sync: false
       - key: CORS_ORIGINS
         sync: false
